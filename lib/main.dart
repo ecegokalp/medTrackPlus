@@ -23,6 +23,7 @@ final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
 
 // --- MEDTRACK RENK PALETİ ---
 
+
 class AppColors {
   static const Color turquoise = Color(0xFF36C0A6);
   static const Color skyBlue = Color(0xFF1D8AD6);
