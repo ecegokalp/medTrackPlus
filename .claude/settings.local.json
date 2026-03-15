@@ -1,0 +1,7 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(C:/Users/efese/AppData/Local/Pub/Cache/bin/flutterfire configure:*)"
+    ]
+  }
+}
