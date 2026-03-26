@@ -4,8 +4,9 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:medTrackPlus/main.dart'; // AppColors
-import 'package:medTrackPlus/app/reports_screen.dart'; // Rapor ekranı
+import 'package:medTrackPlus/main.dart';
+import 'package:medTrackPlus/app/reports_screen.dart';
+import 'package:medTrackPlus/features/camera_test/camera_test_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -94,7 +95,19 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
           const Divider(),
 
-          // 2. Dispenser Raporları (Sadece Aktif Olanlar)
+          ListTile(
+            leading: const Icon(Icons.camera_alt, color: AppColors.deepSea),
+            title: const Text('Camera Test'),
+            subtitle: const Text('CV Processor & Video Upload'),
+            trailing: const Icon(Icons.chevron_right, color: Colors.grey),
+            onTap: () {
+              Navigator.push(context, MaterialPageRoute(
+                builder: (_) => const CameraTestScreen(),
+              ));
+            },
+          ),
+
+          const Divider(),
           Theme(
             data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
             child: ExpansionTile(
