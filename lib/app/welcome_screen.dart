@@ -1,4 +1,5 @@
 import 'dart:ui' as ui;
+import 'package:medTrackPlus/app/developer_screen.dart';
 import 'package:medTrackPlus/app/permissions_screen.dart';
 import 'package:medTrackPlus/main.dart';
 import 'package:easy_localization/easy_localization.dart';
@@ -85,6 +86,12 @@ class _WelcomeScreenState extends State<WelcomeScreen> with SingleTickerProvider
     super.dispose();
   }
 
+  void _handleDevMode() {
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const DeveloperScreen()),
+    );
+  }
+
   void _handleGetStarted() {
     Navigator.of(context).pushReplacement(
       PageRouteBuilder(
@@ -111,6 +118,22 @@ class _WelcomeScreenState extends State<WelcomeScreen> with SingleTickerProvider
           // üzerindeki animasyonlar oynarken arka plan tekrar tekrar çizilmez.
           const RepaintBoundary(
             child: _BackgroundDecoration(),
+          ),
+
+          // --- DEV MODE BUTTON ---
+          Positioned(
+            top: 48,
+            right: 16,
+            child: SafeArea(
+              child: Opacity(
+                opacity: 0.45,
+                child: IconButton(
+                  icon: const Icon(Icons.code_rounded, color: AppColors.deepSea, size: 22),
+                  tooltip: 'Developer Mode',
+                  onPressed: _handleDevMode,
+                ),
+              ),
+            ),
           ),
 
           SafeArea(
