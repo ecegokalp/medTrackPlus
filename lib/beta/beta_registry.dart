@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:medTrackPlus/beta/mlkit_test/mlkit_test_screen.dart';
 
 /// Represents a single beta screen entry.
 class BetaScreen {
@@ -19,11 +20,10 @@ class BetaScreen {
 ///   2. Import it below and add a BetaScreen entry to the list.
 class BetaRegistry {
   static final List<BetaScreen> screens = [
-    // Example — uncomment and replace with your screen:
-    // BetaScreen(
-    //   name: 'New Dashboard',
-    //   description: 'Redesigned dashboard with charts',
-    //   builder: (context) => const NewDashboardScreen(),
-    // ),
+    BetaScreen(
+      name: 'MLKit Face Detection',
+      description: 'Face detection & contour painting test',
+      builder: (_) => const MlkitTestScreen(),
+    ),
   ];
 }
