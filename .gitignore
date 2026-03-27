@@ -119,6 +119,15 @@ ios/Runner/GoogleService-Info.plist
 
 # Local settings
 settings.local.json
+devtools_options.yaml
+
+# Android build
+android/build/
+android/.gradle/
+
+# iOS
+ios/Pods/
+ios/.symlinks/
 
 # Windows
 **/windows/flutter/generated_plugin_registrant.cc
