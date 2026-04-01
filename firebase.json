@@ -1,1 +1,46 @@
-{"flutter":{"platforms":{"android":{"default":{"projectId":"medtrack-plus","appId":"1:198813314743:android:c33881036130e869f26732","fileOutput":"android/app/google-services.json"}},"dart":{"lib/firebase_options.dart":{"projectId":"medtrack-plus","configurations":{"android":"1:198813314743:android:c33881036130e869f26732","ios":"1:198813314743:ios:7cad63a412e20b24f26732"}}}}}}
+{
+  "functions": {
+    "source": "functions",
+    "runtime": "nodejs20",
+    "codebase": "default"
+  },
+  "firestore": {
+    "rules": "firestore.rules"
+  },
+  "storage": {
+    "rules": "storage.rules"
+  },
+  "emulators": {
+    "functions": {
+      "port": 5001
+    },
+    "firestore": {
+      "port": 8080
+    },
+    "ui": {
+      "enabled": true,
+      "port": 4040
+    },
+    "singleProjectMode": true
+  },
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "medtrack-plus",
+          "appId": "1:198813314743:android:c33881036130e869f26732",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "medtrack-plus",
+          "configurations": {
+            "android": "1:198813314743:android:c33881036130e869f26732",
+            "ios": "1:198813314743:ios:7cad63a412e20b24f26732"
+          }
+        }
+      }
+    }
+  }
+}

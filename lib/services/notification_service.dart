@@ -1,7 +1,9 @@
 import 'dart:io';
 import 'package:alarm/alarm.dart';
 import 'package:awesome_notifications/awesome_notifications.dart';
+import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:easy_localization/easy_localization.dart';
+import 'package:firebase_messaging/firebase_messaging.dart';
 import 'package:flutter/material.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -42,6 +44,66 @@ class NotificationService {
       ],
       debug: false,
     );
+  }
+
+  // --- FCM TOKEN YÖNETİMİ ---
+
+  /// FCM token'ı alır ve Firestore users/{uid}/fcmTokens array'ine kaydeder.
+  static Future<void> registerFcmToken(String uid) async {
+    try {
+      final fcm = FirebaseMessaging.instance;
+      final token = await fcm.getToken();
+      if (token != null) {
+        await FirebaseFirestore.instance.collection('users').doc(uid).set({
+          'fcmTokens': FieldValue.arrayUnion([token]),
+        }, SetOptions(merge: true));
+        debugPrint('FCM token registered: ${token.substring(0, 20)}...');
+      }
+
+      // Token yenilendiğinde otomatik güncelle
+      fcm.onTokenRefresh.listen((newToken) async {
+        // Eski token'ı kaldırıp yenisini ekle
+        if (token != null) {
+          await FirebaseFirestore.instance.collection('users').doc(uid).update({
+            'fcmTokens': FieldValue.arrayRemove([token]),
+          });
+        }
+        await FirebaseFirestore.instance.collection('users').doc(uid).update({
+          'fcmTokens': FieldValue.arrayUnion([newToken]),
+        });
+        debugPrint('FCM token refreshed.');
+      });
+    } catch (e) {
+      debugPrint('FCM token registration error: $e');
+    }
+  }
+
+  /// Foreground FCM mesajlarını dinler ve AwesomeNotifications ile gösterir.
+  static void listenForegroundMessages() {
+    FirebaseMessaging.onMessage.listen((RemoteMessage message) {
+      final notification = message.notification;
+      if (notification == null) return;
+
+      final data = message.data;
+      final String classification = data['classification'] ?? '';
+
+      // Classification'a göre kanal seç
+      String channelKey = classification == 'rejected'
+          ? 'stock_warning_channel'
+          : 'reminder_channel';
+
+      AwesomeNotifications().createNotification(
+        content: NotificationContent(
+          id: DateTime.now().millisecondsSinceEpoch.remainder(100000),
+          channelKey: channelKey,
+          title: notification.title ?? 'MedTrack',
+          body: notification.body ?? '',
+          notificationLayout: NotificationLayout.Default,
+          category: NotificationCategory.Reminder,
+          icon: 'resource://drawable/notification_bar_icon',
+        ),
+      );
+    });
   }
 
   static Future<void> requestPermission() async {
@@ -222,8 +284,10 @@ class NotificationService {
           assetAudioPath: soundPath,
           loopAudio: true,
           vibrate: true,
-          volume: 1.0,
-          fadeDuration: 3.0,
+          volumeSettings: VolumeSettings.fade(
+            volume: 1.0,
+            fadeDuration: const Duration(seconds: 3),
+          ),
           androidFullScreenIntent: true,
           notificationSettings: NotificationSettings(
             title: "medicine_time_title".tr(),

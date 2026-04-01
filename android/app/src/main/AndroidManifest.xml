@@ -57,45 +57,6 @@
             </intent-filter>
         </activity>
 
-        <!-- Alarm Service -->
-        <service
-            android:name="com.gdelataillade.alarm.services.AlarmService"
-            android:foregroundServiceType="specialUse"
-            android:stopWithTask="false"
-            android:exported="false">
-            <property
-                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE"
-                android:value="Alarm clock and timer"/>
-        </service>
-
-        <!-- Boot Receiver -->
-        <receiver
-            android:name="com.gdelataillade.alarm.AlarmBootReceiver"
-            android:enabled="true"
-            android:exported="true"
-            android:directBootAware="true">
-            <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED"/>
-                <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED"/>
-                <action android:name="android.intent.action.QUICKBOOT_POWERON"/>
-            </intent-filter>
-        </receiver>
-
-        <!-- Awesome Notifications Receivers -->
-        <receiver
-            android:name="io.flutter.plugins.awesomenotifications.ScheduledNotificationBootReceiver"
-            android:enabled="true"
-            android:exported="true">
-            <intent-filter>
-                <action android:name="android.intent.action.BOOT_COMPLETED"/>
-            </intent-filter>
-        </receiver>
-
-        <receiver
-            android:name="io.flutter.plugins.awesomenotifications.ScheduledNotificationReceiver"
-            android:enabled="true"
-            android:exported="true" />
-
         <meta-data
             android:name="flutterEmbedding"
             android:value="2" />

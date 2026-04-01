@@ -1,5 +1,6 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:medTrackPlus/services/database_service.dart';
+import 'package:medTrackPlus/services/notification_service.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:google_sign_in/google_sign_in.dart';
 import 'package:shared_preferences/shared_preferences.dart';
@@ -109,6 +110,10 @@ class AuthService {
     } catch (e) {
       print('Firestore update error: $e');
     }
+
+    // FCM token kaydet ve foreground mesajları dinle
+    await NotificationService.registerFcmToken(uid);
+    NotificationService.listenForegroundMessages();
 
     // Device list sync (email yoksa atla)
     if (email != null) {
