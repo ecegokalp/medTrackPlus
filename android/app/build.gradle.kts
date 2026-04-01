@@ -81,3 +81,11 @@ android {
 flutter {
     source = "../.."
 }
+
+// CameraX yerine Camera2 kullan (emülatör uyumluluğu için)
+configurations.all {
+    resolutionStrategy {
+        force("io.flutter.plugins.camera:camera_android:+")
+    }
+    exclude(group = "io.flutter.plugins.camerax", module = "camera_android_camerax")
+}

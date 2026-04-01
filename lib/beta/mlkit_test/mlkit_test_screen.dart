@@ -6,6 +6,7 @@ import 'package:camera/camera.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
+import 'package:permission_handler/permission_handler.dart';
 
 class MlkitTestScreen extends StatefulWidget {
   const MlkitTestScreen({super.key});
@@ -37,6 +38,15 @@ class _MlkitTestScreenState extends State<MlkitTestScreen> {
 
   Future<void> _initializeCamera() async {
     try {
+      // Runtime kamera izni iste
+      final status = await Permission.camera.request();
+      if (!status.isGranted) {
+        setState(() {
+          _debugText = 'Kamera izni verilmedi';
+        });
+        return;
+      }
+
       final cameras = await availableCameras();
 
       if (cameras.isEmpty) {
@@ -50,7 +60,11 @@ class _MlkitTestScreenState extends State<MlkitTestScreen> {
         debugPrint('Camera: ${cam.name}, lens: ${cam.lensDirection}');
       }
 
-      final selectedCamera = cameras.first;
+      // Ön kamerayı seç (yüz tespiti için)
+      final selectedCamera = cameras.firstWhere(
+        (c) => c.lensDirection == CameraLensDirection.front,
+        orElse: () => cameras.first,
+      );
 
       _cameraController = CameraController(
         selectedCamera,
@@ -61,9 +75,7 @@ class _MlkitTestScreenState extends State<MlkitTestScreen> {
 
       await _cameraController!.initialize();
 
-      setState(() {
-        _debugText = 'Kamera initialize oldu';
-      });
+      if (!mounted) return;
 
       if (!_cameraController!.value.isInitialized) {
         setState(() {
@@ -71,6 +83,11 @@ class _MlkitTestScreenState extends State<MlkitTestScreen> {
         });
         return;
       }
+
+      setState(() {
+        _isCameraInitialized = true;
+        _debugText = 'Kamera initialize oldu';
+      });
 
       await _cameraController!.startImageStream((image) async {
         if (!_isStreaming) {
@@ -111,11 +128,6 @@ class _MlkitTestScreenState extends State<MlkitTestScreen> {
         }
       });
 
-      if (!mounted) return;
-
-      setState(() {
-        _isCameraInitialized = true;
-      });
     } catch (e) {
       setState(() {
         _debugText = 'Kamera hatası: $e';
@@ -170,7 +182,10 @@ class _MlkitTestScreenState extends State<MlkitTestScreen> {
           ? Stack(
         children: [
           Positioned.fill(
-            child: CameraPreview(_cameraController!),
+            child: AspectRatio(
+              aspectRatio: _cameraController!.value.aspectRatio,
+              child: _cameraController!.buildPreview(),
+            ),
           ),
           Positioned.fill(
             child: CustomPaint(

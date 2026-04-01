@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:medTrackPlus/beta/mlkit_test/mlkit_test_screen.dart';
+import 'package:medTrackPlus/beta/mlkit_test/pill_detection_test_screen.dart';
 import 'package:medTrackPlus/beta/mode_selection_screen.dart';
 import 'package:medTrackPlus/beta/verification_screen/verification_screen.dart';
 
@@ -26,6 +27,11 @@ class BetaRegistry {
       name: 'MLKit Face Detection',
       description: 'Face detection & contour painting test',
       builder: (_) => const MlkitTestScreen(),
+    ),
+    BetaScreen(
+      name: 'Pill Detection Test',
+      description: 'Face + mouth open + pill on tongue detection',
+      builder: (_) => const PillDetectionTestScreen(),
     ),
     BetaScreen(
       name: 'Verification Screen',
