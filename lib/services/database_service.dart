@@ -322,6 +322,67 @@ class DatabaseService {
     try { await _firestore.collection('dispenser').doc(macAddress).update({'device_name': newName}); } catch (e) { print('Error updating name: $e'); }
   }
 
+  // --- PRESENCE & VERIFICATION ---
+
+  Future<void> updatePresence(String macAddress, bool isPresent) async {
+    if (macAddress.isEmpty) return;
+    try {
+      await _rtdb.ref("dispensers/$macAddress/presence").set(isPresent);
+    } catch (e) { print('Presence update error: $e'); }
+  }
+
+  Future<bool> getPresence(String macAddress) async {
+    if (macAddress.isEmpty) return false;
+    try {
+      final snapshot = await _rtdb.ref("dispensers/$macAddress/presence").get();
+      if (snapshot.exists && snapshot.value is bool) return snapshot.value as bool;
+    } catch (e) { print('Presence read error: $e'); }
+    return false;
+  }
+
+  Future<void> setVerificationRequired(String macAddress, bool required) async {
+    if (macAddress.isEmpty) return;
+    try {
+      await _rtdb.ref("dispensers/$macAddress/verification_required").set(required);
+    } catch (e) { print('Verification required update error: $e'); }
+  }
+
+  Future<bool> getVerificationRequired(String macAddress) async {
+    if (macAddress.isEmpty) return false;
+    try {
+      final snapshot = await _rtdb.ref("dispensers/$macAddress/verification_required").get();
+      if (snapshot.exists && snapshot.value is bool) return snapshot.value as bool;
+    } catch (e) { print('Verification required read error: $e'); }
+    return false;
+  }
+
+  Future<void> saveLastVerification(String macAddress, {required double score, required String status}) async {
+    if (macAddress.isEmpty) return;
+    try {
+      await _rtdb.ref("dispensers/$macAddress/last_verification").set({
+        'timestamp': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+        'score': score,
+        'status': status,
+      });
+    } catch (e) { print('Last verification save error: $e'); }
+  }
+
+  Future<Map<String, dynamic>?> getLastVerification(String macAddress) async {
+    if (macAddress.isEmpty) return null;
+    try {
+      final snapshot = await _rtdb.ref("dispensers/$macAddress/last_verification").get();
+      if (snapshot.exists && snapshot.value is Map) {
+        final data = Map<String, dynamic>.from(snapshot.value as Map);
+        return {
+          'timestamp': data['timestamp'] ?? 0,
+          'score': (data['score'] ?? 0).toDouble(),
+          'status': data['status'] ?? 'unknown',
+        };
+      }
+    } catch (e) { print('Last verification read error: $e'); }
+    return null;
+  }
+
   // ===========================================================================
   // --- BÖLÜM 5: KULLANICI YÖNETİMİ ---
   // ===========================================================================

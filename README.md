@@ -333,6 +333,13 @@ When an alarm triggers:
     "{MAC_ADDRESS}": {
       "buzzer": false,
       "debug_status": "ONLINE",
+      "presence": true,
+      "verification_required": false,
+      "last_verification": {
+        "timestamp": 1704357600,
+        "score": 0.95,
+        "status": "verified"
+      },
       "config": {
         "section_0": {
           "name": "Aspirin 100mg",
