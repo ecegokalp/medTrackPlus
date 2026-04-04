@@ -28,7 +28,9 @@ dependencies:
   firebase_database: ^11.1.0
   easy_localization: ^3.0.8
   camera: ^0.11.2+1
+  camera_android: ^0.10.9+16
   google_mlkit_face_detection: ^0.13.2
+  google_mlkit_object_detection: ^0.15.1
 
 dev_dependencies:
   flutter_test:
