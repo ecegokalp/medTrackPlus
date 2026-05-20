@@ -136,6 +136,12 @@ class PillOnTongueService {
     );
   }
 
+  /// True while a pill is being followed toward the lip (stability buffer
+  /// filling). Used by the camera loop to switch to per-frame detection
+  /// during the tracking-to-lip window.
+  bool get isTracking =>
+      _consecutivePillFrames > 0 && _stage == _Stage.awaitingPill;
+
   /// Restart the workflow from the beginning.
   void reset() {
     _consecutivePillFrames = 0;
@@ -154,9 +160,21 @@ class PillOnTongueService {
     InputImage inputImage,
   ) async {
     final faces = await _faceDetector.processImage(inputImage);
+    final face = faces.isEmpty ? null : faces.first;
+    return processFrameWithFace(image, inputImage, face);
+  }
+
+  /// Same as [processFrame] but accepts a pre-detected [Face]. Lets callers
+  /// run face detection ONCE per frame and share the result with other
+  /// modules (FaceDetectionService) instead of re-running the detector here.
+  Future<PillOnTongueResult> processFrameWithFace(
+    CameraImage image,
+    InputImage inputImage,
+    Face? face,
+  ) async {
     final now = DateTime.now();
 
-    if (faces.isEmpty) {
+    if (face == null) {
       _consecutivePillFrames = 0;
       return _emit(
         phase: DetectionPhase.noFace,
@@ -165,7 +183,6 @@ class PillOnTongueService {
       );
     }
 
-    final face = faces.first;
     final yaw = face.headEulerAngleY;
     final pitch = face.headEulerAngleX;
     if ((yaw != null && yaw.abs() > _maxFrontalAngle) ||

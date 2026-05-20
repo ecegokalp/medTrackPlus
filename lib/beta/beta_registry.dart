@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:medTrackPlus/beta/camera_test/camera_test_screen.dart';
 import 'package:medTrackPlus/beta/camera_test/unified_test_screen.dart';
+import 'package:medTrackPlus/beta/cv/cv_test_screen.dart';
 import 'package:medTrackPlus/beta/mlkit_test/mlkit_test_screen.dart';
 import 'package:medTrackPlus/beta/mlkit_test/pill_detection_test_screen.dart';
 import 'package:medTrackPlus/beta/mode_selection_screen.dart';
@@ -63,6 +64,14 @@ class BetaRegistry {
       name: 'Unified Detection Test',
       description: 'ML Kit detection + video recording + upload (birlesik)',
       builder: (_) => const UnifiedTestScreen(),
+    ),
+
+    // -- CV pipeline benchmark --
+    BetaScreen(
+      name: 'CV Pipeline Test',
+      description:
+          'MLKitCVProcessor: Face+Pill+Tracker+Throttler — latency HUD',
+      builder: (_) => const CvTestScreen(),
     ),
 
     // -- Doga: Review --

@@ -13,6 +13,7 @@ import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:medTrackPlus/beta/enums/app_mode.dart';
 import 'package:medTrackPlus/beta/mlkit_test/pill_detection_service.dart';
 import 'package:medTrackPlus/beta/mlkit_test/pill_painter.dart';
+import 'package:medTrackPlus/beta/verification_screen/frame_profiler.dart';
 import 'package:medTrackPlus/beta/models/verification_result.dart' as vr;
 import 'package:medTrackPlus/beta/providers/mode_provider.dart';
 import 'package:medTrackPlus/beta/verification/accuracy_scoring_engine.dart';
@@ -59,6 +60,14 @@ class _VerificationScreenState extends State<VerificationScreen> {
   int _mouthOpenFrames = 0;
   int _pillOnTongueFrames = 0;
   DetectionPhase _highestPhaseReached = DetectionPhase.noFace;
+
+  // Adaptive frame skip — per-phase detection rate:
+  //   waitingForPill (noFace / faceDetected)     → every 5th frame
+  //   trackingToLip  (mouthOpen + tracking pill) → every frame
+  //   pillDetected   (pillOnTongue/closedW.pill) → every 2nd frame
+  //   mouthCheckPrompt (drinking/reopen/...)     → every 2nd frame
+  int _phaseFrameTick = 0;
+  final FrameProfiler _profiler = FrameProfiler();
 
   bool _consentEnabled = false;
   bool _recording = false;
@@ -180,95 +189,121 @@ class _VerificationScreenState extends State<VerificationScreen> {
     }
   }
 
+  /// Maps the verification flow's current phase to a skip factor: 1 means
+  /// process every frame, N means every Nth frame. Decision is based on the
+  /// LAST result we observed (so the very first frame after a phase
+  /// transition may still use the previous skip — acceptable).
+  int _skipForPhase(DetectionPhase phase, bool isTracking) {
+    switch (phase) {
+      // pillDetected — pill confirmed in mouth.
+      case DetectionPhase.pillOnTongue:
+      case DetectionPhase.mouthClosedWithPill:
+        return 2;
+      // mouthCheckPrompt — drink / reopen / swallow verification window.
+      case DetectionPhase.drinking:
+      case DetectionPhase.mouthReopened:
+      case DetectionPhase.swallowConfirmed:
+      case DetectionPhase.swallowFailed:
+      case DetectionPhase.timeoutExpired:
+        return 2;
+      // trackingToLip — mouth is open AND service is building the stability
+      // buffer (consecutivePillFrames > 0). Every frame matters for smoothing.
+      case DetectionPhase.mouthOpen:
+        return isTracking ? 1 : 5;
+      // waitingForPill — no useful signal yet.
+      case DetectionPhase.noFace:
+      case DetectionPhase.faceDetected:
+        return 5;
+    }
+  }
+
   Future<void> _onFrame(CameraImage image) async {
-    if (_isProcessing || _completed) return;
-    _isProcessing = true;
-    try {
-      final inputImage = _buildInputImage(image);
-      if (inputImage == null) return;
-      final result = await _service.processFrame(image, inputImage);
-      _frameCount++;
-      _lastFrameTime = DateTime.now();
-      if (result.face != null) _facePresentFrames++;
-      switch (result.phase) {
-        case DetectionPhase.mouthOpen:
-        case DetectionPhase.pillOnTongue:
-        case DetectionPhase.mouthClosedWithPill:
-        case DetectionPhase.drinking:
-        case DetectionPhase.mouthReopened:
-          _mouthOpenFrames++;
-          break;
-        default:
-          break;
-      }
-      if (result.phase == DetectionPhase.pillOnTongue ||
-          result.phase == DetectionPhase.mouthClosedWithPill) {
-        _pillOnTongueFrames++;
-      }
-      if (result.phase.index > _highestPhaseReached.index) {
-        _highestPhaseReached = result.phase;
-      }
-      // Trigger recording the moment the user opens their mouth — so the
-      // entire interaction (pill placement → consumption → swallow) is
-      // captured on video for the relative reviewer.
-      if (!_recording &&
-          !_videoUploaded &&
-          !_finalizing &&
-          !_completed &&
-          _consentEnabled &&
-          result.phase == DetectionPhase.mouthOpen) {
-        // Pass the current frame so the encoder uses the SAME width/height
-        // as the buffers we'll feed it (preview size and stream buffer size
-        // can differ on some devices, causing SIZE MISMATCH errors).
-        _startRecording(image);
-      }
-      // Detection success: stop recording IMMEDIATELY and finalize.
-      // Continuing to record after the verification completes (a) is wasteful,
-      // (b) dilutes the score because post-swallow frames have no pill on
-      // tongue. The 30s timer remains as a fallback for cases where
-      // swallowConfirmed never arrives.
-      if (result.phase == DetectionPhase.swallowConfirmed &&
-          !_detectionSucceeded &&
-          !_finalizing) {
-        _detectionSucceeded = true;
-        if (mounted) {
-          setState(() => _statusMessage = 'Yutma onaylandı — kayıt sonlanıyor...');
-        }
-        // Fire and forget — _onTimeout will set _finalizing & block re-entry.
-        _onTimeout();
-      }
-      if (mounted) {
-        setState(() {
-          _lastResult = result;
-          _imageSize = Size(image.width.toDouble(), image.height.toDouble());
-        });
-      }
-      // Feed the encoder from the very same imageStream that detection uses.
-      // Throttled to ~10 fps. No call to MediaRecorder anywhere — this
-      // sidesteps the Android Camera2 single-recording-surface limitation.
-      if (_encoderActive) {
-        if (_encoderBusy) {
-          // Skipped: previous encode still in flight
-        } else {
-          final now = DateTime.now();
-          if (_lastEncodedFrameAt == null ||
-              now.difference(_lastEncodedFrameAt!) >= _encoderFrameInterval) {
-            _lastEncodedFrameAt = now;
-            _encoderBusy = true;
-            // Await here — converting + sending RGBA must finish before the
-            // next imageStream frame replaces this CameraImage's buffer.
-            try {
-              await _encodeFrame(image);
-            } finally {
-              _encoderBusy = false;
+    if (_completed) return;
+    _phaseFrameTick++;
+
+    final skipFactor = _skipForPhase(_lastResult.phase, _service.isTracking);
+    final shouldDetect = !_isProcessing && (_phaseFrameTick % skipFactor == 0);
+
+    if (shouldDetect) {
+      _isProcessing = true;
+      final sw = Stopwatch()..start();
+      try {
+        final inputImage = _buildInputImage(image);
+        if (inputImage != null) {
+          final result = await _service.processFrame(image, inputImage);
+          sw.stop();
+          _profiler.recordProcessed(sw.elapsedMicroseconds, skipFactor);
+          _frameCount++;
+          _lastFrameTime = DateTime.now();
+          if (result.face != null) _facePresentFrames++;
+          switch (result.phase) {
+            case DetectionPhase.mouthOpen:
+            case DetectionPhase.pillOnTongue:
+            case DetectionPhase.mouthClosedWithPill:
+            case DetectionPhase.drinking:
+            case DetectionPhase.mouthReopened:
+              _mouthOpenFrames++;
+              break;
+            default:
+              break;
+          }
+          if (result.phase == DetectionPhase.pillOnTongue ||
+              result.phase == DetectionPhase.mouthClosedWithPill) {
+            _pillOnTongueFrames++;
+          }
+          if (result.phase.index > _highestPhaseReached.index) {
+            _highestPhaseReached = result.phase;
+          }
+          if (!_recording &&
+              !_videoUploaded &&
+              !_finalizing &&
+              !_completed &&
+              _consentEnabled &&
+              result.phase == DetectionPhase.mouthOpen) {
+            _startRecording(image);
+          }
+          if (result.phase == DetectionPhase.swallowConfirmed &&
+              !_detectionSucceeded &&
+              !_finalizing) {
+            _detectionSucceeded = true;
+            if (mounted) {
+              setState(() =>
+                  _statusMessage = 'Yutma onaylandı — kayıt sonlanıyor...');
             }
+            _onTimeout();
+          }
+          if (mounted) {
+            setState(() {
+              _lastResult = result;
+              _imageSize =
+                  Size(image.width.toDouble(), image.height.toDouble());
+            });
           }
         }
+      } catch (e) {
+        debugPrint('[VerificationScreen] Detection error: $e');
+      } finally {
+        _isProcessing = false;
       }
-    } catch (e) {
-      debugPrint('[VerificationScreen] Detection error: $e');
-    } finally {
-      _isProcessing = false;
+    } else {
+      _profiler.recordSkipped();
+    }
+
+    // Encoder runs independently of detection skip — it's time-throttled
+    // (≈10 fps via _encoderFrameInterval) and must keep feeding the MP4 even
+    // on frames where detection is skipped.
+    if (_encoderActive && !_encoderBusy) {
+      final now = DateTime.now();
+      if (_lastEncodedFrameAt == null ||
+          now.difference(_lastEncodedFrameAt!) >= _encoderFrameInterval) {
+        _lastEncodedFrameAt = now;
+        _encoderBusy = true;
+        try {
+          await _encodeFrame(image);
+        } finally {
+          _encoderBusy = false;
+        }
+      }
     }
   }
 
