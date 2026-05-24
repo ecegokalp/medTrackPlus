@@ -58,38 +58,62 @@ class AccuracyScoringEngine {
 
   Map<String, double> calculateSubScores(List<CVFrameData> frames) {
     if (frames.isEmpty) {
-      return {'pill': 0, 'lip': 0, 'mouth': 0, 'pillToLip': 0, 'timing': 0};
+      return {'pill': 0, 'lip': 0, 'mouth': 0, 'pillToLip': 0};
     }
 
-    final total = frames.length.toDouble();
-    final faceFrames = frames.where((f) => f.faceDetected).length;
-    final mouthOpenFrames = frames.where((f) => f.isMouthOpen).length;
-    final pillFrames = frames.where((f) => f.pillDetected).length;
+    double maxPillConfidence = 0.0;
+    for (final f in frames) {
+      if (f.pillConfidence > maxPillConfidence) {
+        maxPillConfidence = f.pillConfidence;
+      }
+    }
+    final pillScore = maxPillConfidence.clamp(0.0, 1.0);
 
-    final lipRatio = (faceFrames / total).clamp(0.0, 1.0);
-    final mouthRatio = faceFrames > 0
-        ? (mouthOpenFrames / faceFrames).clamp(0.0, 1.0)
-        : 0.0;
-    final pillRatio = faceFrames > 0
-        ? (pillFrames / faceFrames).clamp(0.0, 1.0)
-        : 0.0;
+    double lipScore = 0.0;
+    for (int i = frames.length - 1; i >= 0; i--) {
+      if (frames[i].pillToLipDistance != null) {
+        final dist = frames[i].pillToLipDistance!;
+        if (dist <= _pillLipPerfectDist) {
+          lipScore = 1.0;
+        } else if (dist <= _pillLipMaxDist) {
+          lipScore = 0.3;
+        } else {
+          lipScore = 0.0;
+        }
+        break;
+      }
+    }
 
-    final distFrames = frames
-        .where((f) => f.pillToLipDistance != null)
-        .toList();
+    double mouthScore = 0.0;
+    if (frames.length >= 2) {
+      final sessionStart = frames.first.timestamp;
+      final sessionEnd = frames.last.timestamp;
+      final sessionMs = sessionEnd.difference(sessionStart).inMilliseconds;
+      if (sessionMs > 0) {
+        int openMs = 0;
+        for (int i = 1; i < frames.length; i++) {
+          if (frames[i].isMouthOpen) {
+            openMs += frames[i].timestamp.difference(frames[i - 1].timestamp).inMilliseconds;
+          }
+        }
+        mouthScore = (openMs / sessionMs).clamp(0.0, 1.0);
+      }
+    }
+
+    final distFrames = frames.where((f) => f.pillToLipDistance != null).toList();
     double pillToLipScore = 0.0;
     if (distFrames.isNotEmpty) {
-      double sumScore = 0;
+      double sum = 0;
       for (final f in distFrames) {
-        sumScore += scorePillToLipDistance(f.pillToLipDistance!);
+        sum += scorePillToLipDistance(f.pillToLipDistance!);
       }
-      pillToLipScore = sumScore / distFrames.length;
+      pillToLipScore = sum / distFrames.length;
     }
 
     return {
-      'pill': pillRatio,
-      'lip': lipRatio,
-      'mouth': mouthRatio,
+      'pill': pillScore,
+      'lip': lipScore,
+      'mouth': mouthScore,
       'pillToLip': pillToLipScore,
     };
   }
@@ -100,6 +124,14 @@ class AccuracyScoringEngine {
     return 1.0 -
         (normalizedDistance - _pillLipPerfectDist) /
             (_pillLipMaxDist - _pillLipPerfectDist);
+  }
+
+  double calculateTimingScore(DateTime? scheduledAlarm, DateTime verificationStart) {
+    if (scheduledAlarm == null) return 0.5;
+    final diffMin = verificationStart.difference(scheduledAlarm).inMinutes.abs();
+    if (diffMin <= 5) return 1.0;
+    if (diffMin <= 30) return 1.0 - (diffMin - 5) / 25.0 * 0.8;
+    return 0.2;
   }
 
   double calculateFromFrames({

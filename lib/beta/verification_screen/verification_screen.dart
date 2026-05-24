@@ -30,11 +30,13 @@ class VerificationScreen extends StatefulWidget {
   final int sectionIndex;
   final AppMode? modeOverride;
   final String? macAddress;
+  final DateTime? scheduledAlarmTime;
   const VerificationScreen({
     super.key,
     this.sectionIndex = 0,
     this.modeOverride,
     this.macAddress,
+    this.scheduledAlarmTime,
   });
   @override
   State<VerificationScreen> createState() => _VerificationScreenState();
@@ -51,9 +53,6 @@ class _VerificationScreenState extends State<VerificationScreen> {
   PillOnTongueResult _lastResult = PillOnTongueResult.empty();
   Size _imageSize = const Size(480, 640);
   bool _isProcessing = false;
-  /// Wall-clock timestamp of the last frame we processed. Used to detect when
-  /// the camera plugin pauses the image stream during recording so we can
-  /// hide the (now stale) PillPainter overlay.
   DateTime? _lastFrameTime;
 
   int _frameCount = 0;
@@ -73,11 +72,6 @@ class _VerificationScreenState extends State<VerificationScreen> {
   DateTime? _recordingStartedAt;
   static const Duration _recordingMaxDuration = Duration(seconds: 30);
 
-  // ── Software video encoder (replaces controller.startVideoRecording) ─────
-  // We never call MediaRecorder. Instead, when "recording" is on we forward
-  // every Nth frame from the imageStream into FlutterQuickVideoEncoder. This
-  // way detection never pauses (no Camera2 surface conflict) AND a real MP4
-  // is built from the EXACT frames detection sees.
   bool _encoderActive = false;
   bool _encoderBusy = false;
   bool _encoderConfigured = false;
@@ -967,11 +961,17 @@ class _VerificationScreenState extends State<VerificationScreen> {
     }
     final userId = FirebaseAuth.instance.currentUser?.uid;
     if (userId != null) {
+      final timingScore = detectionConfirmed
+          ? _scoringEngine.calculateTimingScore(
+              widget.scheduledAlarmTime, DateTime.now())
+          : 0.2;
       final Map<String, double> subScores;
       if (_cvFrames.isNotEmpty) {
         final cvSub = _scoringEngine.calculateSubScores(_cvFrames);
         subScores = {
           ...cvSub,
+          'presence': _devicePresent ? 1.0 : 0.0,
+          'timing': timingScore,
           'detectionConfirmed': detectionConfirmed ? 1.0 : 0.0,
           'userConfirmed': userConfirmed ? 1.0 : 0.0,
           'avgPillToLipDist': _avgPillToLipDistance,
@@ -982,6 +982,8 @@ class _VerificationScreenState extends State<VerificationScreen> {
           'pill': _facePresentFrames == 0 ? 0.0 : _pillOnTongueFrames / _facePresentFrames,
           'lip': _frameCount == 0 ? 0.0 : _facePresentFrames / _frameCount,
           'mouth': _facePresentFrames == 0 ? 0.0 : _mouthOpenFrames / _facePresentFrames,
+          'presence': _devicePresent ? 1.0 : 0.0,
+          'timing': timingScore,
           'detectionConfirmed': detectionConfirmed ? 1.0 : 0.0,
           'userConfirmed': userConfirmed ? 1.0 : 0.0,
         };
@@ -1211,23 +1213,26 @@ class _VerificationScreenState extends State<VerificationScreen> {
     final mode = _appMode == AppMode.device
         ? ScoringMode.withDevice
         : ScoringMode.deviceFree;
+    final presenceScore =
+        (mode == ScoringMode.withDevice && _devicePresent) ? 1.0 : 0.0;
+    final timingScore = detectionConfirmed
+        ? _scoringEngine.calculateTimingScore(
+            widget.scheduledAlarmTime, DateTime.now())
+        : 0.2;
 
     if (_cvFrames.isNotEmpty) {
       final subScores = _scoringEngine.calculateSubScores(_cvFrames);
-
       double pillScore = subScores['pill'] ?? 0.0;
-      if (detectionConfirmed) {
-        pillScore = pillScore.clamp(0.8, 1.0);
-      }
+      if (detectionConfirmed) pillScore = pillScore.clamp(0.8, 1.0);
 
       return _scoringEngine.calculate(
         mode: mode,
-        presence: (mode == ScoringMode.withDevice && _devicePresent) ? 1.0 : 0.0,
+        presence: presenceScore,
         pill: pillScore,
         lip: subScores['lip'] ?? 0.0,
         mouth: subScores['mouth'] ?? 0.0,
         pillToLip: subScores['pillToLip'] ?? 0.0,
-        timing: detectionConfirmed ? 1.0 : 0.4,
+        timing: timingScore,
       );
     }
 
@@ -1241,19 +1246,18 @@ class _VerificationScreenState extends State<VerificationScreen> {
     final pillScore = detectionConfirmed
         ? rawPillRatio.clamp(0.8, 1.0)
         : rawPillRatio;
-
     final pillToLipScore = _pillToLipSamples > 0
         ? _scoringEngine.scorePillToLipDistance(_avgPillToLipDistance)
         : 0.0;
 
     return _scoringEngine.calculate(
       mode: mode,
-      presence: mode == ScoringMode.withDevice ? 1.0 : 0.0,
+      presence: presenceScore,
       pill: pillScore,
       lip: lipRatio,
       mouth: mouthRatio,
       pillToLip: pillToLipScore,
-      timing: detectionConfirmed ? 1.0 : 0.4,
+      timing: timingScore,
     );
   }
 
