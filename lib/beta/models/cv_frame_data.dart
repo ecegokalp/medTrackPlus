@@ -1,7 +1,6 @@
 import 'package:flutter/material.dart';
+import 'package:medTrackPlus/beta/mlkit_test/pill_detection_service.dart';
 
-/// Raw output of the CV pipeline for a single camera frame.
-/// Produced by CVProcessor and consumed by AccuracyScoringEngine.
 class CVFrameData {
   final bool pillDetected;
   final double pillConfidence;
@@ -28,6 +27,9 @@ class CVFrameData {
   /// Whether the face is frontal enough for reliable detection.
   final bool isFaceFrontal;
 
+  /// Normalized pill-to-lip distance (0.0 = at lip, higher = farther).
+  final double? pillToLipDistance;
+
   final DateTime timestamp;
 
   const CVFrameData({
@@ -42,6 +44,7 @@ class CVFrameData {
     this.headPitch,
     this.headRoll,
     this.isFaceFrontal = true,
+    this.pillToLipDistance,
     required this.timestamp,
   });
 
@@ -58,4 +61,23 @@ class CVFrameData {
       );
 
   bool get isMouthOpen => mouthOpenRatio > 0.06;
+
+  factory CVFrameData.fromPillResult(PillOnTongueResult result) {
+    final face = result.face;
+    return CVFrameData(
+      pillDetected: result.pillConfidence >= 0.4,
+      pillConfidence: result.pillConfidence,
+      pillBoundingBox: result.mouthRegion ?? Rect.zero,
+      faceDetected: face != null,
+      lipContour: const [],
+      mouthOpenRatio: result.mouthOpenRatio,
+      faceBoundingBox: face?.boundingBox ?? Rect.zero,
+      headYaw: face?.headEulerAngleY,
+      headPitch: face?.headEulerAngleX,
+      headRoll: face?.headEulerAngleZ,
+      isFaceFrontal: result.isFaceFrontal,
+      pillToLipDistance: result.pillToLipDistance,
+      timestamp: result.timestamp,
+    );
+  }
 }

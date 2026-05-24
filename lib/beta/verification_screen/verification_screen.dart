@@ -13,12 +13,14 @@ import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:medTrackPlus/beta/enums/app_mode.dart';
 import 'package:medTrackPlus/beta/mlkit_test/pill_detection_service.dart';
 import 'package:medTrackPlus/beta/mlkit_test/pill_painter.dart';
+import 'package:medTrackPlus/beta/models/cv_frame_data.dart';
 import 'package:medTrackPlus/beta/models/verification_result.dart' as vr;
 import 'package:medTrackPlus/beta/providers/mode_provider.dart';
 import 'package:medTrackPlus/beta/verification/accuracy_scoring_engine.dart';
 import 'package:medTrackPlus/beta/verification/cloud_verification_service.dart';
 import 'package:medTrackPlus/main.dart' show AppColors;
 import 'package:medTrackPlus/services/consent_service.dart';
+import 'package:medTrackPlus/services/database_service.dart';
 import 'package:permission_handler/permission_handler.dart';
 import 'package:uuid/uuid.dart';
 import 'package:video_compress/video_compress.dart';
@@ -59,6 +61,10 @@ class _VerificationScreenState extends State<VerificationScreen> {
   int _mouthOpenFrames = 0;
   int _pillOnTongueFrames = 0;
   DetectionPhase _highestPhaseReached = DetectionPhase.noFace;
+
+  final List<CVFrameData> _cvFrames = [];
+  double _avgPillToLipDistance = 0.0;
+  int _pillToLipSamples = 0;
 
   bool _consentEnabled = false;
   bool _recording = false;
@@ -120,6 +126,8 @@ class _VerificationScreenState extends State<VerificationScreen> {
 
   final CloudVerificationService _cloudService = CloudVerificationService();
   final AccuracyScoringEngine _scoringEngine = AccuracyScoringEngine();
+  final DatabaseService _dbService = DatabaseService();
+  bool _devicePresent = false;
 
   AppMode get _appMode => widget.modeOverride ?? modeProvider.value;
   String get _deviceId =>
@@ -135,6 +143,13 @@ class _VerificationScreenState extends State<VerificationScreen> {
 
   Future<void> _bootstrap() async {
     _consentEnabled = await ConsentService.isVideoConsentEnabled();
+    if (_appMode == AppMode.device && widget.macAddress != null) {
+      try {
+        _devicePresent = await _dbService.getPresence(widget.macAddress!);
+      } catch (_) {
+        _devicePresent = false;
+      }
+    }
     final status = await Permission.camera.request();
     if (!status.isGranted) {
       if (mounted) setState(() => _lastResult = PillOnTongueResult.empty());
@@ -206,7 +221,21 @@ class _VerificationScreenState extends State<VerificationScreen> {
         _pillOnTongueFrames++;
       }
       if (result.phase.index > _highestPhaseReached.index) {
+        debugPrint('[VerificationScreen] phase: ${_highestPhaseReached.name} → ${result.phase.name} '
+            '(frame=$_frameCount, face=$_facePresentFrames, pill=$_pillOnTongueFrames, '
+            'pillToLip=${result.pillToLipDistance?.toStringAsFixed(3) ?? "n/a"}, '
+            'mouthRatio=${result.mouthOpenRatio.toStringAsFixed(3)})');
         _highestPhaseReached = result.phase;
+      }
+
+      final cvFrame = CVFrameData.fromPillResult(result);
+      _cvFrames.add(cvFrame);
+
+      if (result.pillToLipDistance != null) {
+        _pillToLipSamples++;
+        _avgPillToLipDistance +=
+            (result.pillToLipDistance! - _avgPillToLipDistance) /
+                _pillToLipSamples;
       }
       // Trigger recording the moment the user opens their mouth — so the
       // entire interaction (pill placement → consumption → swallow) is
@@ -699,6 +728,12 @@ class _VerificationScreenState extends State<VerificationScreen> {
         DateTime.now().isBefore(graceUntil)) {
       if (_lastResult.phase == DetectionPhase.swallowConfirmed) {
         _detectionSucceeded = true;
+        debugPrint('[VerificationScreen] grace period: swallowConfirmed via _lastResult');
+        break;
+      }
+      if (_highestPhaseReached == DetectionPhase.swallowConfirmed) {
+        _detectionSucceeded = true;
+        debugPrint('[VerificationScreen] grace period: swallowConfirmed via _highestPhaseReached');
         break;
       }
       await Future.delayed(const Duration(milliseconds: 250));
@@ -801,6 +836,9 @@ class _VerificationScreenState extends State<VerificationScreen> {
     _detectionSucceeded = false;
     _completed = false;
     _finalizing = false;
+    _cvFrames.clear();
+    _avgPillToLipDistance = 0.0;
+    _pillToLipSamples = 0;
     _service.reset();
     if (mounted) {
       setState(() {
@@ -929,19 +967,33 @@ class _VerificationScreenState extends State<VerificationScreen> {
     }
     final userId = FirebaseAuth.instance.currentUser?.uid;
     if (userId != null) {
+      final Map<String, double> subScores;
+      if (_cvFrames.isNotEmpty) {
+        final cvSub = _scoringEngine.calculateSubScores(_cvFrames);
+        subScores = {
+          ...cvSub,
+          'detectionConfirmed': detectionConfirmed ? 1.0 : 0.0,
+          'userConfirmed': userConfirmed ? 1.0 : 0.0,
+          'avgPillToLipDist': _avgPillToLipDistance,
+          'totalCvFrames': _cvFrames.length.toDouble(),
+        };
+      } else {
+        subScores = {
+          'pill': _facePresentFrames == 0 ? 0.0 : _pillOnTongueFrames / _facePresentFrames,
+          'lip': _frameCount == 0 ? 0.0 : _facePresentFrames / _frameCount,
+          'mouth': _facePresentFrames == 0 ? 0.0 : _mouthOpenFrames / _facePresentFrames,
+          'detectionConfirmed': detectionConfirmed ? 1.0 : 0.0,
+          'userConfirmed': userConfirmed ? 1.0 : 0.0,
+        };
+      }
+
       final result = vr.VerificationResult(
         id: _sessionId,
         accuracyScore: score,
         classification: _mapClassification(classification),
         presenceDetected: _facePresentFrames > 0,
         appMode: _appMode,
-        subScores: {
-          'pill': _facePresentFrames == 0 ? 0.0 : _pillOnTongueFrames / _facePresentFrames,
-          'lip': _frameCount == 0 ? 0.0 : _facePresentFrames / _frameCount,
-          'mouth': _facePresentFrames == 0 ? 0.0 : _mouthOpenFrames / _facePresentFrames,
-          'detectionConfirmed': detectionConfirmed ? 1.0 : 0.0,
-          'userConfirmed': userConfirmed ? 1.0 : 0.0,
-        },
+        subScores: subScores,
         footageUrl: footageUrl,
         sectionIndex: widget.sectionIndex,
         timestamp: DateTime.now(),
@@ -1156,18 +1208,33 @@ class _VerificationScreenState extends State<VerificationScreen> {
   double _computeScore({required bool detectionConfirmed}) {
     if (_frameCount == 0) return 0.0;
 
-    // Lip tracking: how many frames had a face detected (contour tracked).
-    final lipRatio = (_facePresentFrames / _frameCount).clamp(0.0, 1.0);
+    final mode = _appMode == AppMode.device
+        ? ScoringMode.withDevice
+        : ScoringMode.deviceFree;
 
-    // Mouth open ratio among face-present frames (not total frames).
+    if (_cvFrames.isNotEmpty) {
+      final subScores = _scoringEngine.calculateSubScores(_cvFrames);
+
+      double pillScore = subScores['pill'] ?? 0.0;
+      if (detectionConfirmed) {
+        pillScore = pillScore.clamp(0.8, 1.0);
+      }
+
+      return _scoringEngine.calculate(
+        mode: mode,
+        presence: (mode == ScoringMode.withDevice && _devicePresent) ? 1.0 : 0.0,
+        pill: pillScore,
+        lip: subScores['lip'] ?? 0.0,
+        mouth: subScores['mouth'] ?? 0.0,
+        pillToLip: subScores['pillToLip'] ?? 0.0,
+        timing: detectionConfirmed ? 1.0 : 0.4,
+      );
+    }
+
+    final lipRatio = (_facePresentFrames / _frameCount).clamp(0.0, 1.0);
     final mouthRatio = _facePresentFrames > 0
         ? (_mouthOpenFrames / _facePresentFrames).clamp(0.0, 1.0)
         : 0.0;
-
-    // Pill detection: ratio among face-present frames. If the full
-    // verification pipeline succeeded (swallowConfirmed), guarantee
-    // at least 0.8 — the pill WAS on the tongue, was consumed, and the
-    // swallow was verified; low frame-ratio shouldn't penalise the score.
     final rawPillRatio = _facePresentFrames > 0
         ? (_pillOnTongueFrames / _facePresentFrames).clamp(0.0, 1.0)
         : 0.0;
@@ -1175,13 +1242,17 @@ class _VerificationScreenState extends State<VerificationScreen> {
         ? rawPillRatio.clamp(0.8, 1.0)
         : rawPillRatio;
 
+    final pillToLipScore = _pillToLipSamples > 0
+        ? _scoringEngine.scorePillToLipDistance(_avgPillToLipDistance)
+        : 0.0;
+
     return _scoringEngine.calculate(
-      mode: _appMode == AppMode.device
-          ? ScoringMode.withDevice
-          : ScoringMode.deviceFree,
+      mode: mode,
+      presence: mode == ScoringMode.withDevice ? 1.0 : 0.0,
       pill: pillScore,
       lip: lipRatio,
       mouth: mouthRatio,
+      pillToLip: pillToLipScore,
       timing: detectionConfirmed ? 1.0 : 0.4,
     );
   }
@@ -1397,8 +1468,8 @@ class _VerificationScreenState extends State<VerificationScreen> {
                           icon: _phaseIcon(phase),
                           title: _statusMessage ?? _phaseLabel(phase),
                           subtitle: _recording
-                              ? 'Detection duraklatıldı (kayıt sürüyor) — '
-                                  'lütfen ilacınızı alıp yutun'
+                              ? 'Kayıt sürüyor — lütfen ilacınızı alıp yutun'
+                                  '${_pillToLipSamples > 0 ? " (mesafe: ${_avgPillToLipDistance.toStringAsFixed(2)})" : ""}'
                               : _lastResult.guidance,
                         ),
                         const SizedBox(height: 8),

@@ -40,6 +40,13 @@ class PillOnTongueResult {
   final Rect? lastSeenPillRegion;
   final String? detectedDrinkLabel;
 
+  /// Normalized distance from pill region center to lip contour center.
+  /// 0.0 = pill overlaps lip, 1.0+ = far from lip. null = not calculable.
+  final double? pillToLipDistance;
+
+  /// Whether the face is frontal enough for reliable detection.
+  final bool isFaceFrontal;
+
   PillOnTongueResult({
     required this.phase,
     this.face,
@@ -53,6 +60,8 @@ class PillOnTongueResult {
     this.smoothedPillRegion,
     this.lastSeenPillRegion,
     this.detectedDrinkLabel,
+    this.pillToLipDistance,
+    this.isFaceFrontal = true,
   });
 
   factory PillOnTongueResult.empty() => PillOnTongueResult(
@@ -513,6 +522,44 @@ class PillOnTongueService {
     );
   }
 
+  double? _calculatePillToLipDistance(Face? face, Rect? pillRegion) {
+    if (face == null || pillRegion == null) return null;
+    final faceHeight = face.boundingBox.height;
+    if (faceHeight <= 0) return null;
+
+    final upperLipBottom = face.contours[FaceContourType.upperLipBottom];
+    final lowerLipTop = face.contours[FaceContourType.lowerLipTop];
+    if (upperLipBottom == null || lowerLipTop == null) return null;
+    if (upperLipBottom.points.isEmpty || lowerLipTop.points.isEmpty) return null;
+
+    double ux = 0, uy = 0;
+    for (final p in upperLipBottom.points) { ux += p.x; uy += p.y; }
+    ux /= upperLipBottom.points.length;
+    uy /= upperLipBottom.points.length;
+
+    double lx = 0, ly = 0;
+    for (final p in lowerLipTop.points) { lx += p.x; ly += p.y; }
+    lx /= lowerLipTop.points.length;
+    ly /= lowerLipTop.points.length;
+
+    final lipCenterX = (ux + lx) / 2;
+    final lipCenterY = (uy + ly) / 2;
+    final pillCenterX = pillRegion.center.dx;
+    final pillCenterY = pillRegion.center.dy;
+
+    final dx = pillCenterX - lipCenterX;
+    final dy = pillCenterY - lipCenterY;
+    return sqrt(dx * dx + dy * dy) / faceHeight;
+  }
+
+  bool _isFaceFrontal(Face? face) {
+    if (face == null) return false;
+    final yaw = face.headEulerAngleY;
+    final pitch = face.headEulerAngleX;
+    return (yaw == null || yaw.abs() <= _maxFrontalAngle) &&
+        (pitch == null || pitch.abs() <= _maxFrontalAngle);
+  }
+
   PillOnTongueResult _emit({
     required DetectionPhase phase,
     Face? face,
@@ -540,6 +587,8 @@ class PillOnTongueService {
       smoothedPillRegion: smoothedPillRegion,
       lastSeenPillRegion: lastSeenPillRegion,
       detectedDrinkLabel: detectedDrinkLabel ?? _detectedDrinkLabel,
+      pillToLipDistance: _calculatePillToLipDistance(face, mouthRegion ?? lastSeenPillRegion),
+      isFaceFrontal: _isFaceFrontal(face),
     );
   }
 
