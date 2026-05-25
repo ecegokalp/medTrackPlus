@@ -845,16 +845,6 @@ class _VerificationScreenState extends State<VerificationScreen> {
   }
 
   Future<String> _compressVideo(String sourcePath) async {
-    // Defensive checks: skip compression if the file is empty, missing, or
-    // already small enough. Our software encoder produces a portrait MP4
-    // at 480x720@10fps@1.5Mbps — that's ~3 MB for 30 s, already well under
-    // any reasonable upload limit. Running video_compress on already-small
-    // files is risky: when its internal validator decides "no transcode
-    // needed", the plugin then tries to read metadata from a non-existent
-    // output path and crashes the host app with a SecurityException
-    // / setDataSource failure. We avoid that entirely by skipping when:
-    //   • file missing / empty (encoder failed)
-    //   • file < 8 MB (no real benefit, only crash risk)
     int size = 0;
     try {
       final f = File(sourcePath);
@@ -867,7 +857,9 @@ class _VerificationScreenState extends State<VerificationScreen> {
         return sourcePath;
       }
     } catch (_) {}
-    const int compressThresholdBytes = 8 * 1024 * 1024; // 8 MB
+    // Skip compression for files already under 5 MB — video_compress can
+    // crash on tiny files when it decides no transcode is needed.
+    const int compressThresholdBytes = 5 * 1024 * 1024; // 5 MB
     if (size > 0 && size < compressThresholdBytes) {
       debugPrint(
           '[VerificationScreen] compress SKIPPED: file already small '
@@ -879,7 +871,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
       setState(() {
         _uploading = true;
         _uploadProgress = 0.0;
-        _uploadStatus = 'Video sıkıştırılıyor...';
+        _uploadStatus = 'Video sıkıştırılıyor (720p)...';
       });
     }
     try {
@@ -889,13 +881,22 @@ class _VerificationScreenState extends State<VerificationScreen> {
       });
       final info = await VideoCompress.compressVideo(
         sourcePath,
-        quality: VideoQuality.LowQuality,
+        quality: VideoQuality.MediumQuality,
         deleteOrigin: false,
         includeAudio: false,
+        frameRate: 24,
       );
       sub.unsubscribe();
       final compressedPath = info?.path;
       if (compressedPath == null || compressedPath.isEmpty) return sourcePath;
+      final compressedFile = File(compressedPath);
+      final compressedSize = await compressedFile.exists()
+          ? await compressedFile.length()
+          : 0;
+      debugPrint(
+          '[VerificationScreen] Compressed: '
+          '${(size / (1024 * 1024)).toStringAsFixed(2)} MB → '
+          '${(compressedSize / (1024 * 1024)).toStringAsFixed(2)} MB');
       try {
         final f = File(sourcePath);
         if (await f.exists()) await f.delete();
@@ -917,9 +918,14 @@ class _VerificationScreenState extends State<VerificationScreen> {
     String footageUrl = '';
     String? storagePath;
     String? uploadError;
-    if (_consentEnabled && localPath != null && !_videoUploaded) {
-      // Verify file is non-empty BEFORE compress (crash guard)
-      final localFile = File(localPath);
+
+    // Only upload footage for suspicious classifications.
+    if (_consentEnabled &&
+        localPath != null &&
+        !_videoUploaded &&
+        classification == VerificationResult.suspicious) {
+      final nonNullPath = localPath;
+      final localFile = File(nonNullPath);
       final localExists = await localFile.exists();
       final localSize = localExists ? await localFile.length() : 0;
       if (!localExists || localSize < 1024 || _encodedFrameCount == 0) {
@@ -929,32 +935,60 @@ class _VerificationScreenState extends State<VerificationScreen> {
         uploadError =
             'Kayıt boş ($_encodedFrameCount frame). Encoder frame alamadı.';
       } else {
-      final pathToUpload = await _compressVideo(localPath);
-      if (mounted) setState(() => _uploadStatus = 'Sunucuya yükleniyor...');
-      try {
-        final upload = await _cloudService.uploadVideo(
-          deviceId: _deviceId,
-          localPath: pathToUpload,
-          onProgress: (p) {
-            if (!mounted) return;
-            setState(() =>
-                _uploadProgress = (0.5 + p * 0.5).clamp(0.0, 1.0));
-          },
-        );
-        footageUrl = upload.downloadUrl;
-        storagePath = upload.storagePath;
-        _videoUploaded = true;
-      } catch (e) {
-        uploadError = e.toString();
-        debugPrint('[VerificationScreen] Upload failed: $e');
-        if (mounted) setState(() => _uploadStatus = 'Yükleme başarısız.');
-      } finally {
+        final pathToUpload = await _compressVideo(nonNullPath);
+        if (mounted) setState(() => _uploadStatus = 'Sunucuya yükleniyor...');
+
+        // Retry upload up to 3 times with exponential backoff.
+        const int maxAttempts = 3;
+        for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+          try {
+            if (mounted && attempt > 1) {
+              setState(() => _uploadStatus =
+                  'Yükleme yeniden deneniyor ($attempt/$maxAttempts)...');
+            }
+            final upload = await _cloudService.uploadFootage(
+              deviceId: _deviceId,
+              localPath: pathToUpload,
+              onProgress: (p) {
+                if (!mounted) return;
+                setState(() =>
+                    _uploadProgress = (0.5 + p * 0.5).clamp(0.0, 1.0));
+              },
+            );
+            footageUrl = upload.downloadUrl;
+            storagePath = upload.storagePath;
+            _videoUploaded = true;
+            uploadError = null;
+            break; // success — exit retry loop
+          } catch (e) {
+            uploadError = e.toString();
+            debugPrint(
+                '[VerificationScreen] Upload attempt $attempt/$maxAttempts '
+                'failed: $e');
+            if (attempt < maxAttempts) {
+              // Exponential backoff: 2s, 4s
+              final delay = Duration(seconds: 2 * attempt);
+              debugPrint('[VerificationScreen] Retrying in ${delay.inSeconds}s...');
+              if (mounted) {
+                setState(() => _uploadStatus =
+                    '${delay.inSeconds}s sonra tekrar denenecek...');
+              }
+              await Future.delayed(delay);
+            } else {
+              debugPrint(
+                  '[VerificationScreen] All $maxAttempts upload attempts exhausted.');
+              if (mounted) {
+                setState(() => _uploadStatus = 'Yükleme başarısız.');
+              }
+            }
+          }
+        }
+        // Clean up compressed file after all attempts.
         try {
           final f = File(pathToUpload);
           if (await f.exists()) await f.delete();
         } catch (_) {}
       }
-      } // close else (non-empty local file branch)
     }
     if (mounted && _consentEnabled && localPath != null) {
       setState(() => _uploadStatus = 'Doğrulama kaydı yazılıyor...');
@@ -1125,11 +1159,19 @@ class _VerificationScreenState extends State<VerificationScreen> {
                   'Video sunucuya yüklendi. Yakınlarınız Yakın İncelemesi\'nden açabilir.',
                   AppColors.turquoise,
                 )
-              else
+              else if (_completionUploadError != null)
                 _completionInfoRow(
                   Icons.cloud_off_rounded,
-                  'Video YÜKLENEMEDİ: ${_completionUploadError ?? "bilinmeyen hata"}',
+                  'Video YÜKLENEMEDİ: $_completionUploadError',
                   Colors.redAccent,
+                )
+              else
+                _completionInfoRow(
+                  Icons.info_outline_rounded,
+                  _completionClassification == 'suspicious'
+                      ? 'Video yüklenemedi.'
+                      : 'Video kaydı gerekmedi (sonuç: $_completionClassification).',
+                  Colors.grey.shade600,
                 ),
               if (_completionStoragePath != null) ...[
                 const SizedBox(height: 6),
@@ -1222,8 +1264,9 @@ class _VerificationScreenState extends State<VerificationScreen> {
 
     if (_cvFrames.isNotEmpty) {
       final subScores = _scoringEngine.calculateSubScores(_cvFrames);
-      double pillScore = subScores['pill'] ?? 0.0;
-      if (detectionConfirmed) pillScore = pillScore.clamp(0.8, 1.0);
+      // CV pill score stays as-is — no artificial boost from user confirmation.
+      // detectionConfirmed only gives a small timing bonus (already handled above).
+      final pillScore = subScores['pill'] ?? 0.0;
 
       return _scoringEngine.calculate(
         mode: mode,
@@ -1243,9 +1286,6 @@ class _VerificationScreenState extends State<VerificationScreen> {
     final rawPillRatio = _facePresentFrames > 0
         ? (_pillOnTongueFrames / _facePresentFrames).clamp(0.0, 1.0)
         : 0.0;
-    final pillScore = detectionConfirmed
-        ? rawPillRatio.clamp(0.8, 1.0)
-        : rawPillRatio;
     final pillToLipScore = _pillToLipSamples > 0
         ? _scoringEngine.scorePillToLipDistance(_avgPillToLipDistance)
         : 0.0;
@@ -1253,7 +1293,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
     return _scoringEngine.calculate(
       mode: mode,
       presence: presenceScore,
-      pill: pillScore,
+      pill: rawPillRatio,
       lip: lipRatio,
       mouth: mouthRatio,
       pillToLip: pillToLipScore,

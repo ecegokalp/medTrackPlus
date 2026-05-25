@@ -687,9 +687,6 @@ class PillOnTongueService {
     final imgH = image.height;
     final bytesPerRow = image.planes.first.bytesPerRow;
 
-    // ML Kit on Android returns contour coordinates in the raw buffer's own
-    // coordinate system (it applies rotation internally for detection only).
-    // İpek's proven original: use mouthRect directly — no rotation transform.
     final left = mouthRect.left.toInt().clamp(0, imgW - 1);
     final top = mouthRect.top.toInt().clamp(0, imgH - 1);
     final right = mouthRect.right.toInt().clamp(0, imgW - 1);

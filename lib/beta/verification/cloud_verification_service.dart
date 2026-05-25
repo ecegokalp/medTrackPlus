@@ -150,6 +150,68 @@ class CloudVerificationService implements ICloudVerificationService {
     }
   }
 
+  /// Uploads a suspicious verification video to `footage/{deviceId}/{timestamp}.mp4`.
+  /// Uses the dedicated footage path for suspicious-only recordings that
+  /// relatives need to review. Progress is reported via [onProgress] (0.0–1.0).
+  Future<VideoUploadResult> uploadFootage({
+    required String deviceId,
+    required String localPath,
+    String? customTimestamp,
+    void Function(double progress)? onProgress,
+  }) async {
+    try {
+      final file = File(localPath);
+      if (!await file.exists()) {
+        throw Exception('Footage file not found: $localPath');
+      }
+
+      final ts = customTimestamp ??
+          DateTime.now().toUtc().toIso8601String().replaceAll(':', '-');
+      final storagePath = 'footage/$deviceId/$ts.mp4';
+      final ref = _storage.ref().child(storagePath);
+
+      final uploadTask = ref.putFile(
+        file,
+        SettableMetadata(
+          contentType: 'video/mp4',
+          customMetadata: {
+            'deviceId': deviceId,
+            'classification': 'suspicious',
+            'uploadedAt': DateTime.now().toUtc().toIso8601String(),
+            'expiresAt': DateTime.now()
+                .toUtc()
+                .add(const Duration(hours: 24))
+                .toIso8601String(),
+          },
+        ),
+      );
+
+      uploadTask.snapshotEvents.listen((snapshot) {
+        if (snapshot.totalBytes > 0) {
+          final progress = snapshot.bytesTransferred / snapshot.totalBytes;
+          if (onProgress != null) onProgress(progress.clamp(0.0, 1.0));
+          debugPrint(
+              '[CloudVerificationService] Footage upload: '
+              '${(progress * 100).toStringAsFixed(0)}%');
+        }
+      });
+
+      await uploadTask;
+      if (onProgress != null) onProgress(1.0);
+      final downloadUrl = await ref.getDownloadURL();
+
+      debugPrint(
+          '[CloudVerificationService] Footage uploaded: $storagePath');
+      return VideoUploadResult(
+        downloadUrl: downloadUrl,
+        storagePath: storagePath,
+      );
+    } catch (e) {
+      debugPrint('[CloudVerificationService] uploadFootage error: $e');
+      rethrow;
+    }
+  }
+
   /// Deletes a previously uploaded video by its full storage path
   /// (e.g. "videos/AABBCC/2026-...-..mp4"). Used when the user says they
   /// couldn't take the medication in the timeout dialog.

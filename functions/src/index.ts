@@ -334,14 +334,20 @@ export const cleanupOldVideos = functions
   .timeZone("UTC")
   .onRun(async () => {
     const bucket = admin.storage().bucket();
-    const [files] = await bucket.getFiles({prefix: "videos/"});
+    // Clean up both videos/ and footage/ prefixes.
+    const prefixes = ["videos/", "footage/"];
+    const allFiles = [];
+    for (const prefix of prefixes) {
+      const [files] = await bucket.getFiles({prefix});
+      allFiles.push(...files);
+    }
 
     const now = Date.now();
     const ttlMs = 24 * 60 * 60 * 1000;
     let deleted = 0;
     let kept = 0;
 
-    for (const file of files) {
+    for (const file of allFiles) {
       try {
         const [metadata] = await file.getMetadata();
         const expiresAt = metadata.metadata?.expiresAt as string | undefined;
@@ -387,12 +393,16 @@ export const onVideoUploaded = functions
   .region("europe-west1")
   .storage.object()
   .onFinalize(async (object) => {
-    if (!object.name || !object.name.startsWith("videos/")) return null;
+    if (!object.name ||
+        (!object.name.startsWith("videos/") && !object.name.startsWith("footage/"))) {
+      return null;
+    }
     const parts = object.name.split("/");
     if (parts.length < 3) return null;
     const deviceId = parts[1];
+    const prefix = parts[0]; // "videos" or "footage"
     functions.logger.info(
-      `Video uploaded: ${object.name} (deviceId=${deviceId}, size=${object.size})`
+      `${prefix} uploaded: ${object.name} (deviceId=${deviceId}, size=${object.size})`
     );
     return null;
   });
