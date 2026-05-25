@@ -425,6 +425,94 @@ class DatabaseService {
     try { await _firestore.collection('dispenser').doc(macAddress).update({'device_name': newName}); } catch (e) { print('Error updating name: $e'); }
   }
 
+  // --- DISPENSE & VERIFICATION BRIDGE ---
+
+  Future<void> triggerDispense(String macAddress, int sectionIndex) async {
+    if (macAddress.isEmpty) return;
+    try {
+      await _rtdb.ref("dispensers/$macAddress/commands/dispense").set({
+        'section': sectionIndex,
+        'timestamp': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      });
+      print('[DatabaseService] Dispense command sent: section $sectionIndex');
+    } catch (e) {
+      print('[DatabaseService] triggerDispense error: $e');
+    }
+  }
+
+  Future<void> decrementPillCount(String macAddress, int sectionIndex) async {
+    if (macAddress.isEmpty) return;
+    try {
+      final ref = _rtdb.ref("dispensers/$macAddress/config/section_$sectionIndex/pillCount");
+      final snapshot = await ref.get();
+      if (snapshot.exists) {
+        int current = 0;
+        if (snapshot.value is int) {
+          current = snapshot.value as int;
+        } else {
+          current = int.tryParse(snapshot.value.toString()) ?? 0;
+        }
+        final next = (current - 1).clamp(0, 9999);
+        await ref.set(next);
+        print('[DatabaseService] Pill count: $current → $next (section $sectionIndex)');
+      }
+    } catch (e) {
+      print('[DatabaseService] decrementPillCount error: $e');
+    }
+  }
+
+  Future<void> logDispenseAndVerify({
+    required String macAddress,
+    required int sectionIndex,
+    required String userId,
+    required double verificationScore,
+    required String classification,
+    required bool detectionConfirmed,
+    required bool userConfirmed,
+    required String verificationId,
+    String? footageUrl,
+  }) async {
+    if (macAddress.isEmpty) return;
+    try {
+      await _firestore.collection('dispenser').doc(macAddress).collection('logs').add({
+        'type': 'dispense_verify',
+        'section': sectionIndex,
+        'userId': userId,
+        'verificationScore': verificationScore,
+        'classification': classification,
+        'detectionConfirmed': detectionConfirmed,
+        'userConfirmed': userConfirmed,
+        'verificationId': verificationId,
+        'footageUrl': footageUrl,
+        'timestamp': FieldValue.serverTimestamp(),
+      });
+      print('[DatabaseService] Logged dispense_verify for section $sectionIndex');
+    } catch (e) {
+      print('[DatabaseService] logDispenseAndVerify error: $e');
+    }
+  }
+
+  Future<void> logVerificationCancel({
+    required String macAddress,
+    required int sectionIndex,
+    required String userId,
+    required String reason,
+  }) async {
+    if (macAddress.isEmpty) return;
+    try {
+      await _firestore.collection('dispenser').doc(macAddress).collection('logs').add({
+        'type': 'verification_cancel',
+        'section': sectionIndex,
+        'userId': userId,
+        'reason': reason,
+        'timestamp': FieldValue.serverTimestamp(),
+      });
+      print('[DatabaseService] Logged verification_cancel: $reason');
+    } catch (e) {
+      print('[DatabaseService] logVerificationCancel error: $e');
+    }
+  }
+
   // --- PRESENCE & VERIFICATION ---
 
   Future<void> updatePresence(String macAddress, bool isPresent) async {

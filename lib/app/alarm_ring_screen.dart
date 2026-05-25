@@ -9,6 +9,8 @@ import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:medTrackPlus/main.dart';
+import 'package:medTrackPlus/beta/enums/app_mode.dart';
+import 'package:medTrackPlus/beta/providers/mode_provider.dart';
 import 'package:medTrackPlus/services/database_service.dart';
 import 'package:medTrackPlus/beta/verification_screen/verification_screen.dart';
 
@@ -39,7 +41,7 @@ class _AlarmRingScreenState extends State<AlarmRingScreen> {
   void initState() {
     super.initState();
 
-    // ✅ Sadece native kanaldan kilit ekranı açma - Wakelock KALDIRILDI
+
     platform.invokeMethod('showOnLockScreen');
 
     _loadMetadata();
@@ -69,7 +71,6 @@ class _AlarmRingScreenState extends State<AlarmRingScreen> {
 
   @override
   void dispose() {
-    // ✅ Wakelock disable kaldırıldı - Native kanal zaten yönetiyor
     super.dispose();
   }
 
@@ -79,10 +80,13 @@ class _AlarmRingScreenState extends State<AlarmRingScreen> {
     await Alarm.stop(widget.alarmSettings.id);
 
     if (_macAddress.isNotEmpty && _sectionIndices.isNotEmpty) {
-      // Stop → directly run unified video verification for each medicine
-      // section. The verification screen itself records the outcome
-      // (cloud save + relative review feed). No legacy "did it drop?" UI.
-      await _runVerificationForAllSections();
+      final isDeviceMode = modeProvider.value == AppMode.device;
+
+      if (isDeviceMode) {
+        await _dispenseAndVerify();
+      } else {
+        await _runVerificationForAllSections();
+      }
     }
 
     final prefs = await SharedPreferences.getInstance();
@@ -92,9 +96,43 @@ class _AlarmRingScreenState extends State<AlarmRingScreen> {
     _closeApp();
   }
 
-  /// Sequentially launches the unified VerificationScreen for each medicine
-  /// section in this alarm. The user can close any of them early; we just
-  /// move on to the next.
+  Future<void> _dispenseAndVerify() async {
+    for (int i = 0; i < _sectionIndices.length; i++) {
+      if (!mounted) return;
+      final section = _sectionIndices[i];
+
+      bool dispensed = false;
+      for (int attempt = 1; attempt <= 2; attempt++) {
+        try {
+          await _dbService.triggerDispense(_macAddress, section);
+          await Future.delayed(const Duration(seconds: 3));
+          dispensed = true;
+          break;
+        } catch (e) {
+          debugPrint('[AlarmRingScreen] Dispense attempt $attempt failed: $e');
+          if (attempt < 2) await Future.delayed(const Duration(seconds: 2));
+        }
+      }
+      if (!dispensed) {
+        debugPrint('[AlarmRingScreen] Dispense failed for section $section, proceeding to verify');
+      }
+
+      try {
+        await Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => VerificationScreen(
+              sectionIndex: section,
+              macAddress: _macAddress,
+              scheduledAlarmTime: widget.alarmSettings.dateTime,
+            ),
+          ),
+        );
+      } catch (e) {
+        debugPrint('[AlarmRingScreen] Verification error: $e');
+      }
+    }
+  }
+
   Future<void> _runVerificationForAllSections() async {
     for (int i = 0; i < _sectionIndices.length; i++) {
       if (!mounted) return;
@@ -104,12 +142,12 @@ class _AlarmRingScreenState extends State<AlarmRingScreen> {
             builder: (_) => VerificationScreen(
               sectionIndex: _sectionIndices[i],
               macAddress: _macAddress,
+              scheduledAlarmTime: widget.alarmSettings.dateTime,
             ),
           ),
         );
       } catch (e) {
         debugPrint('[AlarmRingScreen] Verification screen error: $e');
-        // Continue to next section regardless of failures
       }
     }
   }

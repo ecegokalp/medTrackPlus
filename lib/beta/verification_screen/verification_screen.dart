@@ -758,6 +758,15 @@ class _VerificationScreenState extends State<VerificationScreen> {
       _setFinalStatusFromClassification();
     } else {
       await _discardLocalRecording();
+      if (widget.macAddress != null && widget.macAddress!.isNotEmpty) {
+        final uid = FirebaseAuth.instance.currentUser?.uid;
+        if (uid != null) {
+          try {
+            await _dbService.safeRefundPill(
+                widget.macAddress!, widget.sectionIndex, uid);
+          } catch (_) {}
+        }
+      }
       _resetForRetry();
     }
   }
@@ -1037,7 +1046,9 @@ class _VerificationScreenState extends State<VerificationScreen> {
       try {
         await _cloudService.save(userId, result);
       } catch (_) {}
-      if (widget.macAddress != null && widget.macAddress!.isNotEmpty) {
+      final hasMac = widget.macAddress != null && widget.macAddress!.isNotEmpty;
+
+      if (hasMac) {
         try {
           await _cloudService.saveForDevice(
             macAddress: widget.macAddress!,
@@ -1052,7 +1063,36 @@ class _VerificationScreenState extends State<VerificationScreen> {
             },
           );
         } catch (_) {}
+
+        try {
+          await _dbService.saveLastVerification(
+            widget.macAddress!,
+            score: score,
+            status: classification.name,
+          );
+        } catch (_) {}
+
+        if (detectionConfirmed || userConfirmed) {
+          try {
+            await _dbService.decrementPillCount(
+                widget.macAddress!, widget.sectionIndex);
+          } catch (_) {}
+        }
       }
+
+      try {
+        await _dbService.logDispenseAndVerify(
+          macAddress: hasMac ? widget.macAddress! : 'device-free',
+          sectionIndex: widget.sectionIndex,
+          userId: userId,
+          verificationScore: score,
+          classification: classification.name,
+          detectionConfirmed: detectionConfirmed,
+          userConfirmed: userConfirmed,
+          verificationId: _sessionId,
+          footageUrl: footageUrl.isEmpty ? null : footageUrl,
+        );
+      } catch (_) {}
     }
     if (mounted) {
       setState(() {
@@ -1424,9 +1464,20 @@ class _VerificationScreenState extends State<VerificationScreen> {
     // completion dialog takes over).
     final blocking = _finalizing || _uploading;
     return PopScope(
-      // While blocking, intercept system back so the user can't exit until
-      // upload + classification finalize.
       canPop: !blocking,
+      onPopInvokedWithResult: (didPop, _) {
+        if (didPop && !_completed && !_finalizing) {
+          final uid = FirebaseAuth.instance.currentUser?.uid;
+          if (uid != null && widget.macAddress != null && widget.macAddress!.isNotEmpty) {
+            _dbService.logVerificationCancel(
+              macAddress: widget.macAddress!,
+              sectionIndex: widget.sectionIndex,
+              userId: uid,
+              reason: 'user_exited_early',
+            );
+          }
+        }
+      },
       child: Scaffold(
         backgroundColor: AppColors.background,
         appBar: AppBar(
