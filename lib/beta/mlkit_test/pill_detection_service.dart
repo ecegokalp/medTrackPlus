@@ -1,6 +1,7 @@
 import 'dart:math';
 import 'dart:ui';
 import 'package:camera/camera.dart';
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/foundation.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
 import 'package:google_mlkit_image_labeling/google_mlkit_image_labeling.dart';
@@ -68,7 +69,7 @@ class PillOnTongueResult {
         phase: DetectionPhase.noFace,
         mouthOpenRatio: 0.0,
         pillConfidence: 0.0,
-        guidance: 'Yüzünüzü kameraya gösterin',
+        guidance: 'guide_show_face'.tr(),
         timestamp: DateTime.now(),
       );
 }
@@ -187,7 +188,7 @@ class PillOnTongueService {
       _consecutivePillFrames = 0;
       return _emit(
         phase: DetectionPhase.noFace,
-        guidance: 'Yüzünüzü kameraya gösterin',
+        guidance: 'guide_show_face'.tr(),
         now: now,
       );
     }
@@ -200,7 +201,7 @@ class PillOnTongueService {
       return _emit(
         phase: DetectionPhase.faceDetected,
         face: face,
-        guidance: 'Lütfen yüzünüzü doğrudan kameraya çevirin',
+        guidance: 'guide_face_camera_directly'.tr(),
         now: now,
       );
     }
@@ -257,7 +258,7 @@ class PillOnTongueService {
         phase: DetectionPhase.faceDetected,
         face: face,
         mouthOpenRatio: mouthOpenRatio,
-        guidance: 'Adım 1: Ağzınızı açın',
+        guidance: 'guide_step1_open_mouth'.tr(),
         now: now,
       );
     }
@@ -284,7 +285,7 @@ class PillOnTongueService {
         pillConfidence: analysis?.confidence ?? 0.0,
         whitePixelCount: analysis?.whitePixels ?? 0,
         totalMouthPixels: analysis?.totalPixels ?? 0,
-        guidance: 'Hap algılandı! Şimdi ağzınızı kapatın ve su için',
+        guidance: 'guide_pill_detected_close_drink'.tr(),
         smoothedPillRegion: smoothed,
         lastSeenPillRegion: _lastSeenPillRegion,
         now: now,
@@ -300,8 +301,11 @@ class PillOnTongueService {
       whitePixelCount: analysis?.whitePixels ?? 0,
       totalMouthPixels: analysis?.totalPixels ?? 0,
       guidance: _consecutivePillFrames > 0
-          ? 'Hap algılanıyor... Sabit tutun ($_consecutivePillFrames/$_requiredStableFrames)'
-          : 'Adım 2: Hapı dilinizin üstüne koyun',
+          ? 'guide_pill_detecting_hold'.tr(args: [
+              _consecutivePillFrames.toString(),
+              _requiredStableFrames.toString(),
+            ])
+          : 'guide_step2_pill_on_tongue'.tr(),
       smoothedPillRegion: smoothed,
       lastSeenPillRegion: _lastSeenPillRegion,
       now: now,
@@ -320,7 +324,7 @@ class PillOnTongueService {
     if (elapsed > _drinkTimeoutAfter) {
       _stage = _Stage.done;
       _lastDonePhase = DetectionPhase.timeoutExpired;
-      _lastDoneGuidance = 'Süre doldu — işlem iptal edildi';
+      _lastDoneGuidance = 'guide_timeout_cancelled'.tr();
       return _emit(
         phase: DetectionPhase.timeoutExpired,
         face: face,
@@ -366,15 +370,17 @@ class PillOnTongueService {
 
     final String guidance;
     if (_drinkLabelHits > 0) {
-      guidance = 'Bardak algılanıyor... '
-          'sabit tutun ($_drinkLabelHits/$_requiredDrinkHits)';
+      guidance = 'guide_glass_detecting_hold'.tr(args: [
+        _drinkLabelHits.toString(),
+        _requiredDrinkHits.toString(),
+      ]);
     } else if (elapsed > _drinkWarningAfter) {
-      guidance = 'Lütfen su için '
-          '(kalan süre: ${(_drinkTimeoutAfter - elapsed).inSeconds}s)';
+      guidance = 'guide_please_drink_remaining'.tr(
+          args: [(_drinkTimeoutAfter - elapsed).inSeconds.toString()]);
     } else if (mouthOpenRatio >= _mouthOpenThreshold) {
-      guidance = 'Adım 3: Ağzınızı kapatın ve su için';
+      guidance = 'guide_step3_close_drink'.tr();
     } else {
-      guidance = 'Adım 4: Bardak/şişe ile su için';
+      guidance = 'guide_step4_drink_with_glass'.tr();
     }
 
     return _emit(
@@ -404,7 +410,7 @@ class PillOnTongueService {
         face: face,
         mouthOpenRatio: mouthOpenRatio,
         mouthRegion: mouthRect,
-        guidance: 'Yutma kontrol ediliyor...',
+        guidance: 'guide_checking_swallow'.tr(),
         lastSeenPillRegion: _lastSeenPillRegion,
         now: now,
       );
@@ -414,8 +420,8 @@ class PillOnTongueService {
       phase: DetectionPhase.drinking,
       face: face,
       mouthOpenRatio: mouthOpenRatio,
-      guidance: 'İçme algılandı (${_detectedDrinkLabel ?? "?"}) — '
-          'Adım 5: Yuttuktan sonra ağzınızı tekrar açın',
+      guidance: 'guide_drinking_detected_reopen'
+          .tr(args: [_detectedDrinkLabel ?? '?']),
       lastSeenPillRegion: _lastSeenPillRegion,
       detectedDrinkLabel: _detectedDrinkLabel,
       now: now,
@@ -436,7 +442,7 @@ class PillOnTongueService {
         phase: DetectionPhase.mouthReopened,
         face: face,
         mouthOpenRatio: mouthOpenRatio,
-        guidance: 'Ağzınızı açık tutun (yutma kontrol ediliyor)',
+        guidance: 'guide_keep_mouth_open'.tr(),
         lastSeenPillRegion: _lastSeenPillRegion,
         now: now,
       );
@@ -465,7 +471,7 @@ class PillOnTongueService {
         mouthOpenRatio: mouthOpenRatio,
         mouthRegion: mouthRect,
         pillConfidence: analysis?.confidence ?? 0.0,
-        guidance: 'Ağzınızı daha geniş açın (yutma kontrolü)',
+        guidance: 'guide_open_mouth_wider'.tr(),
         lastSeenPillRegion: _lastSeenPillRegion,
         now: now,
       );
@@ -481,8 +487,7 @@ class PillOnTongueService {
         mouthOpenRatio: mouthOpenRatio,
         mouthRegion: mouthRect,
         pillConfidence: analysis?.confidence ?? 0.0,
-        guidance: 'Ağzınızda parlak bir şey görünüyor — '
-            'dilinizi gösterip ağzınızın boş olduğunu kanıtlayın',
+        guidance: 'guide_bright_object_show_tongue'.tr(),
         lastSeenPillRegion: _lastSeenPillRegion,
         now: now,
       );
@@ -505,15 +510,14 @@ class PillOnTongueService {
           mouthOpenRatio: mouthOpenRatio,
           mouthRegion: mouthRect,
           pillConfidence: analysis?.confidence ?? 0.0,
-          guidance: 'Hap hâlâ ağzınızda — yutmaya çalışın, '
-              'sonra ağzınızı kapatıp tekrar açın',
+          guidance: 'guide_pill_still_in_mouth'.tr(),
           lastSeenPillRegion: _lastSeenPillRegion,
           now: now,
         );
       }
       _stage = _Stage.done;
       _lastDonePhase = DetectionPhase.swallowConfirmed;
-      _lastDoneGuidance = 'Hap yutuldu! ✓';
+      _lastDoneGuidance = 'guide_pill_swallowed'.tr();
       return _emit(
         phase: _lastDonePhase,
         face: face,
@@ -532,8 +536,10 @@ class PillOnTongueService {
       mouthOpenRatio: mouthOpenRatio,
       mouthRegion: mouthRect,
       pillConfidence: analysis?.confidence ?? 0.0,
-      guidance: 'Yutma kontrol ediliyor... '
-          '($_swallowVerifyCounter/$_swallowVerifyFrames)',
+      guidance: 'guide_checking_swallow_progress'.tr(args: [
+        _swallowVerifyCounter.toString(),
+        _swallowVerifyFrames.toString(),
+      ]),
       lastSeenPillRegion: _lastSeenPillRegion,
       now: now,
     );

@@ -129,7 +129,7 @@ class _WelcomeScreenState extends State<WelcomeScreen> with SingleTickerProvider
                 opacity: 0.45,
                 child: IconButton(
                   icon: const Icon(Icons.code_rounded, color: AppColors.deepSea, size: 22),
-                  tooltip: 'Developer Mode',
+                  tooltip: 'developer_mode_title'.tr(),
                   onPressed: _handleDevMode,
                 ),
               ),

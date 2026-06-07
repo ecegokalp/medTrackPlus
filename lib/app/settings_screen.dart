@@ -1,12 +1,17 @@
+import 'package:medTrackPlus/services/app_mode_service.dart';
 import 'package:medTrackPlus/services/auth_service.dart';
 import 'package:medTrackPlus/services/consent_service.dart';
 import 'package:medTrackPlus/services/database_service.dart';
 import 'package:easy_localization/easy_localization.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import 'package:medTrackPlus/main.dart'; // AppColors
 import 'package:medTrackPlus/app/developer_screen.dart';
+import 'package:medTrackPlus/app/main_hub.dart';
 import 'package:medTrackPlus/app/reports_screen.dart'; // Rapor ekranı
+import 'package:medTrackPlus/beta/enums/app_mode.dart';
+import 'package:medTrackPlus/beta/providers/mode_provider.dart';
 import 'package:medTrackPlus/widgets/kvkk_consent_dialog.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -19,6 +24,7 @@ class SettingsScreen extends StatefulWidget {
 class _SettingsScreenState extends State<SettingsScreen> {
   final DatabaseService _dbService = DatabaseService();
   final AuthService _authService = AuthService();
+  final AppModeService _modeService = AppModeService();
 
   // Sadece feedback özelliği açık olan cihazları tutacak liste
   List<Map<String, String>> _activeFeedbackDevices = [];
@@ -28,11 +34,47 @@ class _SettingsScreenState extends State<SettingsScreen> {
   bool _videoConsent = false;
   bool _videoConsentLoaded = false;
 
+  // Uygulama modu state
+  bool _multiPatient = false;
+
   @override
   void initState() {
     super.initState();
     _fetchAndFilterDevices();
     _loadVideoConsent();
+    _loadModePrefs();
+  }
+
+  Future<void> _loadModePrefs() async {
+    final multi = await _modeService.isMultiPatient();
+    if (mounted) setState(() => _multiPatient = multi);
+  }
+
+  /// Mod değişimi: kalıcı kaydet, modeProvider'ı güncelle ve MainHub'ı
+  /// sıfırdan aç (sekmeler ve dashboard yeniden kurulsun).
+  Future<void> _changeAppMode(AppMode mode) async {
+    if (modeProvider.value == mode) return;
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    await _modeService.saveMode(mode, uid: uid);
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const MainHub()),
+      (_) => false,
+    );
+  }
+
+  Future<void> _changeMultiPatient(bool multi) async {
+    final uid = FirebaseAuth.instance.currentUser?.uid;
+    await _modeService.saveMultiPatient(multi, uid: uid);
+    if (!mounted) return;
+    setState(() => _multiPatient = multi);
+    // Device-free moddaysak dashboard düzeni değişti → MainHub'ı tazele.
+    if (modeProvider.isDeviceFree) {
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const MainHub()),
+        (_) => false,
+      );
+    }
   }
 
   Future<void> _loadVideoConsent() async {
@@ -54,9 +96,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
         await ConsentService.grantVideoConsent();
         if (!mounted) return;
         setState(() => _videoConsent = true);
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content: Text('Video doğrulama kaydı etkinleştirildi.'),
-          duration: Duration(seconds: 2),
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text('video_consent_enabled_msg'.tr()),
+          duration: const Duration(seconds: 2),
         ));
       }
       // Reddedildiyse hiçbir şey yapma — toggle kapalı kalır
@@ -65,9 +107,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
       await ConsentService.revokeVideoConsent();
       if (!mounted) return;
       setState(() => _videoConsent = false);
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-        content: Text('Video doğrulama kaydı devre dışı bırakıldı.'),
-        duration: Duration(seconds: 2),
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+        content: Text('video_consent_disabled_msg'.tr()),
+        duration: const Duration(seconds: 2),
       ));
     }
   }
@@ -138,11 +180,58 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
           const Divider(),
 
+          // --- UYGULAMA MODU (device / device-free) ---
+          ListTile(
+            leading: const Icon(Icons.swap_horiz_rounded, color: AppColors.deepSea),
+            title: Text('app_mode_title'.tr(),
+                style: const TextStyle(fontWeight: FontWeight.w600)),
+            subtitle: Text(
+              modeProvider.isDeviceFree
+                  ? 'mode_device_free_title'.tr()
+                  : 'mode_device_title'.tr(),
+              style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+            ),
+            trailing: DropdownButton<AppMode>(
+              value: modeProvider.value,
+              underline: Container(),
+              items: [
+                DropdownMenuItem(
+                    value: AppMode.device,
+                    child: Text('app_mode_device'.tr())),
+                DropdownMenuItem(
+                    value: AppMode.deviceFree,
+                    child: Text('app_mode_device_free'.tr())),
+              ],
+              onChanged: (mode) {
+                if (mode != null) _changeAppMode(mode);
+              },
+            ),
+          ),
+
+          // --- DASHBOARD DÜZENİ (yalnızca device-free) ---
+          if (modeProvider.isDeviceFree)
+            SwitchListTile(
+              secondary: const Icon(Icons.groups_rounded, color: AppColors.deepSea),
+              title: Text('multi_patient_setting_title'.tr(),
+                  style: const TextStyle(fontWeight: FontWeight.w600)),
+              subtitle: Text(
+                _multiPatient
+                    ? 'multi_patient_setting_on'.tr()
+                    : 'multi_patient_setting_off'.tr(),
+                style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+              ),
+              value: _multiPatient,
+              activeColor: AppColors.skyBlue,
+              onChanged: _changeMultiPatient,
+            ),
+
+          const Divider(),
+
           // Developer Mode
           ListTile(
             leading: const Icon(Icons.code_rounded, color: AppColors.deepSea),
-            title: const Text('Developer Mode'),
-            subtitle: const Text('Beta screens & test tools'),
+            title: Text('developer_mode_title'.tr()),
+            subtitle: Text('developer_mode_subtitle'.tr()),
             trailing: const Icon(Icons.chevron_right, color: Colors.grey),
             onTap: () => Navigator.push(
               context,
@@ -156,14 +245,14 @@ class _SettingsScreenState extends State<SettingsScreen> {
           SwitchListTile(
             secondary: const Icon(Icons.videocam_rounded,
                 color: AppColors.deepSea),
-            title: const Text(
-              'Video Doğrulama Kaydı',
-              style: TextStyle(fontWeight: FontWeight.w600),
+            title: Text(
+              'video_verification_recording_title'.tr(),
+              style: const TextStyle(fontWeight: FontWeight.w600),
             ),
             subtitle: Text(
               _videoConsent
-                  ? 'Aktif — ilaç alımı sırasında kısa video kaydedilebilir.'
-                  : 'Kapalı — kayıt yapılmaz, sadece görsel doğrulama çalışır.',
+                  ? 'video_consent_active_desc'.tr()
+                  : 'video_consent_inactive_desc'.tr(),
               style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
             ),
             value: _videoConsent,
@@ -174,7 +263,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
             Padding(
               padding: const EdgeInsets.only(left: 72, right: 16, bottom: 8),
               child: Text(
-                'Videolar Firebase\'de en fazla 24 saat saklanır, sonra otomatik silinir. Hasta yakınlarınız "Yakın İncelemesi" ekranından erişebilir.',
+                'video_retention_note'.tr(),
                 style: TextStyle(
                   fontSize: 11,
                   color: Colors.grey.shade500,

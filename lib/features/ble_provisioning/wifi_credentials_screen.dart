@@ -293,7 +293,7 @@ class _WifiCredentialsScreenState extends State<WifiCredentialsScreen> {
                 const SizedBox(height: 20),
                 // Cihaz Adı
                 Text(
-                  widget.device.platformName.isNotEmpty ? widget.device.platformName : "MedTrack Device",
+                  widget.device.platformName.isNotEmpty ? widget.device.platformName : "default_device_name".tr(),
                   textAlign: TextAlign.center,
                   style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Colors.grey.shade800),
                 ),

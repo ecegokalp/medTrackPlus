@@ -3,6 +3,7 @@ import 'package:medTrackPlus/app/relative_review_screen.dart';
 import 'package:medTrackPlus/app/reports_screen.dart';
 import 'package:medTrackPlus/services/auth_service.dart';
 import 'package:medTrackPlus/services/database_service.dart';
+import 'package:medTrackPlus/services/patient_service.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 
@@ -16,6 +17,7 @@ class RelativesScreen extends StatefulWidget {
 class _RelativesScreenState extends State<RelativesScreen> {
   final AuthService _authService = AuthService();
   final DatabaseService _dbService = DatabaseService();
+  final PatientService _patientService = PatientService();
 
   String? _currentUid;
   String? _currentEmail;
@@ -80,17 +82,31 @@ class _RelativesScreenState extends State<RelativesScreen> {
     );
   }
 
-  // Ortak cihazları bulma
+  // Ortak cihazları VE device-free hasta profillerini bulma
   Future<List<Map<String, String>>> _getCommonDevices(String otherEmail) async {
     List<Map<String, String>> commonDevices = [];
     if(_currentUid == null || _currentEmail == null) return [];
 
-    // Benim listemdeki cihazlar
+    // Benim listemdeki cihazlar + hasta profilleri (tek listede)
     final myDevices = await _dbService.getAllUserDevices(_currentUid!, _currentEmail!);
+    final myPatients =
+        await _patientService.getAllUserPatients(_currentUid!, _currentEmail!);
+    final List<Map<String, String>> allEntities = [
+      ...myDevices,
+      // Hastaları cihaz formatına eşle ({mac, name}) — alt akışlar
+      // (RelativeReviewScreen, ReportsScreen) entity-aware olduğundan
+      // 'patient_' ID'leri doğrudan kullanılabilir.
+      ...myPatients.map((p) => {'mac': p['id']!, 'name': p['name'] ?? ''}),
+    ];
 
-    for (var device in myDevices) {
-      String mac = device['mac']!;
-      var doc = await FirebaseFirestore.instance.collection('dispenser').doc(mac).get();
+    for (var device in allEntities) {
+      String entityId = device['mac']!;
+      final collection =
+          entityId.startsWith('patient_') ? 'patients' : 'dispenser';
+      var doc = await FirebaseFirestore.instance
+          .collection(collection)
+          .doc(entityId)
+          .get();
       if (doc.exists) {
         var data = doc.data()!;
         List<String> allUsers = [];
@@ -110,7 +126,7 @@ class _RelativesScreenState extends State<RelativesScreen> {
   @override
   Widget build(BuildContext context) {
     if (_isLoading) return const Center(child: CircularProgressIndicator());
-    if (_currentUid == null) return const Center(child: Text("Giriş hatası"));
+    if (_currentUid == null) return Center(child: Text("login_error_generic".tr()));
 
     return Scaffold(
       backgroundColor: Colors.transparent,
@@ -206,7 +222,7 @@ class _RelativesScreenState extends State<RelativesScreen> {
 
                               final devices = deviceSnap.data ?? [];
 
-                              if (devices.isEmpty) return Padding(padding: const EdgeInsets.all(16.0), child: Text("Ortak cihaz yok", style: TextStyle(color: Colors.grey.shade600)));
+                              if (devices.isEmpty) return Padding(padding: const EdgeInsets.all(16.0), child: Text("no_common_devices".tr(), style: TextStyle(color: Colors.grey.shade600)));
 
                               return Column(
                                 children: devices.map((device) {
@@ -228,7 +244,7 @@ class _RelativesScreenState extends State<RelativesScreen> {
                                             style: const TextStyle(fontWeight: FontWeight.bold, color: Color(0xFF0F5191)),
                                           ),
                                           subtitle: Text(
-                                            'Video doğrulama incele • ${device['mac']!}',
+                                            '${'review_video_verification'.tr()} • ${device['mac']!}',
                                             style: TextStyle(fontSize: 11, color: Colors.blueGrey.shade600),
                                           ),
                                           trailing: const Icon(Icons.chevron_right_rounded, color: Color(0xFF36C0A6)),
@@ -250,7 +266,7 @@ class _RelativesScreenState extends State<RelativesScreen> {
                                               if (targetUid == null) {
                                                 if (!context.mounted) return;
                                                 ScaffoldMessenger.of(context).showSnackBar(
-                                                    const SnackBar(content: Text('Kullanıcı verisine ulaşılamadı.')));
+                                                    SnackBar(content: Text('user_data_unreachable'.tr())));
                                                 return;
                                               }
                                               if (!context.mounted) return;
@@ -263,7 +279,7 @@ class _RelativesScreenState extends State<RelativesScreen> {
                                               ));
                                             },
                                             icon: const Icon(Icons.bar_chart_rounded, size: 18),
-                                            label: const Text('İstatistik raporunu aç'),
+                                            label: Text('open_stats_report'.tr()),
                                             style: TextButton.styleFrom(
                                               foregroundColor: const Color(0xFF36C0A6),
                                             ),

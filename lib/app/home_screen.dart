@@ -500,7 +500,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
           width: double.infinity,
           child: _buildSmallActionButton(
             icon: Icons.bug_report_rounded,
-            label: 'Mock Alarm (Dev) — İlaç Doğrulamayı Aç',
+            label: 'mock_alarm_dev_label'.tr(),
             color: Colors.deepOrange,
             onTap: _handleMockAlarm,
           ),
@@ -516,13 +516,13 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     final sectionIndex = await showDialog<int>(
       context: context,
       builder: (ctx) => SimpleDialog(
-        title: const Text('Mock Alarm — Bölme Seç'),
+        title: Text('mock_alarm_select_section'.tr()),
         children: List.generate(_sections.isEmpty ? 1 : _sections.length,
             (i) {
           final name = _sections.length > i
               ? (_sections[i]['name']?.toString() ??
-                  'Bölme ${i + 1}')
-              : 'Bölme ${i + 1}';
+                  'section_prefix'.tr(args: [(i + 1).toString()]))
+              : 'section_prefix'.tr(args: [(i + 1).toString()]);
           return SimpleDialogOption(
             onPressed: () => Navigator.pop(ctx, i),
             child: Row(

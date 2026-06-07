@@ -53,7 +53,9 @@ class CloudVerificationService implements ICloudVerificationService {
     }
   }
 
-  /// Saves a verification under the device document so relatives can review it.
+  /// Saves a verification under the entity document so relatives can review it.
+  /// Entity = dispenser (MAC id) or device-free patient ('patient_<uuid>' id);
+  /// the collection is resolved from the id prefix.
   /// Pass [extraData] (e.g. {'storagePath': ...}) for fields not modeled by
   /// [VerificationResult].
   Future<void> saveForDevice({
@@ -66,8 +68,10 @@ class CloudVerificationService implements ICloudVerificationService {
         ...result.toFirestore(),
         if (extraData != null) ...extraData,
       };
+      final collection =
+          macAddress.startsWith('patient_') ? 'patients' : 'dispenser';
       await _firestore
-          .collection('dispenser')
+          .collection(collection)
           .doc(macAddress)
           .collection('verifications')
           .doc(result.id)

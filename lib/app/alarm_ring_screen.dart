@@ -317,7 +317,7 @@ class _AlarmRingScreenState extends State<AlarmRingScreen> {
                                         children: [
                                           const Icon(Icons.alarm_off_rounded, color: Colors.white, size: 36),
                                           const SizedBox(width: 15),
-                                          Text("ALARMI DURDUR", style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold, letterSpacing: 2, decoration: TextDecoration.none))
+                                          Text("stop_alarm_btn".tr(), style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold, letterSpacing: 2, decoration: TextDecoration.none))
                                         ]
                                     ),
                                   ),

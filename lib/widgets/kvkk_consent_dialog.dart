@@ -1,3 +1,4 @@
+import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 
 /// Modal that displays the KVKK + liability disclaimer for video verification
@@ -61,14 +62,14 @@ class _KvkkConsentDialogState extends State<KvkkConsentDialog> {
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 20, 20, 12),
               child: Row(
-                children: const [
-                  Icon(Icons.privacy_tip_rounded,
+                children: [
+                  const Icon(Icons.privacy_tip_rounded,
                       color: Color(0xFF1D8AD6), size: 28),
-                  SizedBox(width: 12),
+                  const SizedBox(width: 12),
                   Expanded(
                     child: Text(
-                      'Video Doğrulama — KVKK Aydınlatma & Sorumluluk Reddi',
-                      style: TextStyle(
+                      'kvkk_dialog_title'.tr(),
+                      style: const TextStyle(
                         fontWeight: FontWeight.w700,
                         fontSize: 16,
                         color: Color(0xFF0F5191),
@@ -88,93 +89,40 @@ class _KvkkConsentDialogState extends State<KvkkConsentDialog> {
                   padding: const EdgeInsets.all(20),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
-                    children: const [
+                    children: [
                       _Section(
-                        title: '1. Veri Sorumlusu',
-                        body:
-                            'MedTrack Plus ("Uygulama"), 6698 sayılı Kişisel '
-                            'Verilerin Korunması Kanunu ("KVKK") kapsamında veri '
-                            'sorumlusu sıfatıyla hareket etmektedir. Bu metin, '
-                            'video doğrulama özelliğini etkinleştirdiğinizde '
-                            'işlenecek kişisel verileriniz hakkında sizi '
-                            'bilgilendirmek amacıyla hazırlanmıştır.',
+                        title: 'kvkk_section1_title'.tr(),
+                        body: 'kvkk_section1_body'.tr(),
                       ),
                       _Section(
-                        title: '2. İşlenen Kişisel Veriler',
-                        body:
-                            'Bu özelliği etkinleştirdiğinizde, ilaç alım '
-                            'doğrulama oturumları sırasında ön kameranızla '
-                            'kaydedilen kısa video parçaları işlenir. Kayıtlar '
-                            'yüz görüntünüzü ve hap alımına ilişkin görsel '
-                            'verileri içerebilir. Ayrıca cihaz tanımlayıcısı, '
-                            'oturum zaman damgası, doğrulama skoru ve '
-                            'sınıflandırma sonucu gibi teknik veriler '
-                            'işlenmektedir.',
+                        title: 'kvkk_section2_title'.tr(),
+                        body: 'kvkk_section2_body'.tr(),
                       ),
                       _Section(
-                        title: '3. İşleme Amacı ve Hukuki Sebep',
-                        body:
-                            'Veriler yalnızca ilaç alım doğrulamasını '
-                            'sağlamak, hasta yakınlarına bilgi vermek ve hizmet '
-                            'kalitesini iyileştirmek amacıyla işlenir. Hukuki '
-                            'sebep KVKK m.5/1 uyarınca AÇIK RIZA\'nızdır. '
-                            'Onayınız olmadan hiçbir video kaydı alınmaz, '
-                            'sunucuya yüklenmez veya saklanmaz.',
+                        title: 'kvkk_section3_title'.tr(),
+                        body: 'kvkk_section3_body'.tr(),
                       ),
                       _Section(
-                        title: '4. Saklama Süresi',
-                        body:
-                            'Yüklenen videolar Firebase Storage üzerinde '
-                            'oturum başına yalnızca 24 saat süreyle saklanır '
-                            've bu sürenin sonunda otomatik olarak silinir. '
-                            'Doğrulama meta verileri (skor, zaman damgası vb.) '
-                            'ise hizmet kayıtları için Firestore üzerinde tutulur.',
+                        title: 'kvkk_section4_title'.tr(),
+                        body: 'kvkk_section4_body'.tr(),
                       ),
                       _Section(
-                        title: '5. Aktarım',
-                        body:
-                            'Video kaydı yalnızca sizin yetkilendirdiğiniz '
-                            'hasta yakınlarınız (relative) tarafından, oturum '
-                            'açtıkları yetkili hesap üzerinden görüntülenebilir. '
-                            'Üçüncü kişilere veya reklam amaçlı hiçbir kuruma '
-                            'aktarılmaz.',
+                        title: 'kvkk_section5_title'.tr(),
+                        body: 'kvkk_section5_body'.tr(),
                       ),
                       _Section(
-                        title: '6. Haklarınız',
-                        body:
-                            'KVKK m.11 uyarınca; verilerinize erişme, '
-                            'düzeltilmesini, silinmesini veya işlenmesinin '
-                            'durdurulmasını talep etme hakkına sahipsiniz. Bu '
-                            'taleplerinizi uygulama içi Ayarlar bölümünden '
-                            '"Video Doğrulama Kaydı" anahtarını kapatarak veya '
-                            'plus.medtrack@gmail.com adresine yazarak '
-                            'iletebilirsiniz.',
+                        title: 'kvkk_section6_title'.tr(),
+                        body: 'kvkk_section6_body'.tr(),
                       ),
                       _Section(
-                        title: '7. Sorumluluk Reddi',
-                        body:
-                            'Video doğrulama, yapay zeka tabanlı bir destek '
-                            'aracıdır ve %100 doğruluk garantisi vermez. Sistem '
-                            'çıktıları tıbbi tavsiye yerine geçmez. MedTrack '
-                            'Plus ekibi, hatalı pozitif/negatif sonuçlardan, '
-                            'eksik kayıtlardan veya kullanıcının ilacı düzgün '
-                            'şekilde alıp almamasından doğacak sağlık '
-                            'sonuçlarından sorumlu tutulamaz. İlaç tedavisine '
-                            'ilişkin tüm sorumluluk kullanıcıya ve onun '
-                            'sağlık hizmeti sağlayıcısına aittir.',
+                        title: 'kvkk_section7_title'.tr(),
+                        body: 'kvkk_section7_body'.tr(),
                       ),
                       _Section(
-                        title: '8. Açık Rıza Beyanı',
-                        body:
-                            'Yukarıdaki tüm maddeleri okuduğumu, anladığımı; '
-                            'video kaydının alınmasına, sunucuda 24 saat '
-                            'saklanmasına, hasta yakınlarımla paylaşılmasına '
-                            've sonrasında otomatik silinmesine açık rızamla '
-                            'onay verdiğimi kabul ve beyan ederim. Bu onayı '
-                            'dilediğim zaman Ayarlar üzerinden geri '
-                            'alabileceğimi biliyorum.',
+                        title: 'kvkk_section8_title'.tr(),
+                        body: 'kvkk_section8_body'.tr(),
                       ),
-                      SizedBox(height: 8),
+                      const SizedBox(height: 8),
                     ],
                   ),
                 ),
@@ -194,8 +142,8 @@ class _KvkkConsentDialogState extends State<KvkkConsentDialog> {
                   Expanded(
                     child: Text(
                       _scrolledToBottom
-                          ? 'Yukarıdaki metnin tamamını okudum ve kabul ediyorum.'
-                          : 'Devam etmek için lütfen metni sonuna kadar kaydırın.',
+                          ? 'kvkk_checkbox_accept'.tr()
+                          : 'kvkk_scroll_hint'.tr(),
                       style: TextStyle(
                         fontSize: 13,
                         color: _scrolledToBottom
@@ -214,7 +162,7 @@ class _KvkkConsentDialogState extends State<KvkkConsentDialog> {
                 children: [
                   TextButton(
                     onPressed: () => Navigator.of(context).pop(false),
-                    child: const Text('Reddet'),
+                    child: Text('kvkk_reject_btn'.tr()),
                   ),
                   const SizedBox(width: 8),
                   ElevatedButton(
@@ -226,7 +174,7 @@ class _KvkkConsentDialogState extends State<KvkkConsentDialog> {
                     onPressed: canAccept
                         ? () => Navigator.of(context).pop(true)
                         : null,
-                    child: const Text('Kabul Ediyorum'),
+                    child: Text('kvkk_accept_btn'.tr()),
                   ),
                 ],
               ),

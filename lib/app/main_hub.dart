@@ -1,10 +1,16 @@
 import 'package:medTrackPlus/app/home_screen.dart';
 import 'package:medTrackPlus/app/login_screen.dart'; // <--- YENİ EKLENDİ
+import 'package:medTrackPlus/app/device_free/patient_dashboard_screen.dart';
+import 'package:medTrackPlus/app/device_free/patient_list_screen.dart';
+import 'package:medTrackPlus/beta/providers/mode_provider.dart';
 import 'package:medTrackPlus/features/ble_provisioning/sync_screen.dart';
 import 'package:medTrackPlus/app/relatives_screen.dart';
+import 'package:medTrackPlus/services/app_mode_service.dart';
 import 'package:medTrackPlus/services/auth_service.dart';
 import 'package:medTrackPlus/services/database_service.dart';
+import 'package:medTrackPlus/services/patient_service.dart';
 import 'package:easy_localization/easy_localization.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 
 import 'device_list_screen.dart';
@@ -20,15 +26,20 @@ class MainHub extends StatefulWidget {
 class _MainHubState extends State<MainHub> {
   final AuthService _authService = AuthService();
   final DatabaseService _dbService = DatabaseService();
+  final GlobalKey<PatientListScreenState> _patientListKey = GlobalKey();
   int _selectedIndex = 0;
 
   bool _isDragMode = false;
 
   AppUser? _currentUser;
 
+  bool get _isDeviceFree => modeProvider.isDeviceFree;
+
   @override
   void initState() {
     super.initState();
+    // Mod değişimini dinle (Ayarlar'dan değiştirilebilir).
+    modeProvider.addListener(_onModeChanged);
     _authService.getOrCreateUser().then((user) {
       if (user != null) {
         setState(() {
@@ -36,6 +47,16 @@ class _MainHubState extends State<MainHub> {
         });
       }
     });
+  }
+
+  @override
+  void dispose() {
+    modeProvider.removeListener(_onModeChanged);
+    super.dispose();
+  }
+
+  void _onModeChanged() {
+    if (mounted) setState(() => _selectedIndex = 0);
   }
 
   void _onItemTapped(int index) {
@@ -120,7 +141,7 @@ class _MainHubState extends State<MainHub> {
 
                 // İsim ve Bilgi
                 Text(
-                  _currentUser?.displayName ?? "User",
+                  _currentUser?.displayName ?? "user_fallback".tr(),
                   style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF0F5191)),
                   textAlign: TextAlign.center,
                 ),
@@ -239,7 +260,14 @@ class _MainHubState extends State<MainHub> {
     final colorScheme = theme.colorScheme;
 
     Widget currentScreen;
-    if (_selectedIndex == 0) {
+    if (_isDeviceFree) {
+      // --- DEVICE-FREE MOD: 2 sekme (Dashboard, Yakınlar) ---
+      if (_selectedIndex == 0) {
+        currentScreen = _DeviceFreeDashboard(patientListKey: _patientListKey);
+      } else {
+        currentScreen = const RelativesScreen();
+      }
+    } else if (_selectedIndex == 0) {
       currentScreen = DeviceListScreen(
         isDragMode: _isDragMode,
         onModeChanged: _toggleDragMode,
@@ -295,13 +323,15 @@ class _MainHubState extends State<MainHub> {
           ),
         ),
         title: Text(
-          _selectedIndex == 0
-              ? (_isDragMode ? 'edit_mode'.tr() : 'my_devices'.tr())
-              : (_selectedIndex == 1 ? 'sync'.tr() : 'relatives'.tr()),
+          _isDeviceFree
+              ? (_selectedIndex == 0 ? 'dashboard'.tr() : 'relatives'.tr())
+              : (_selectedIndex == 0
+                  ? (_isDragMode ? 'edit_mode'.tr() : 'my_devices'.tr())
+                  : (_selectedIndex == 1 ? 'sync'.tr() : 'relatives'.tr())),
           style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
         ),
         actions: [
-          if (_selectedIndex == 0)
+          if (!_isDeviceFree && _selectedIndex == 0)
             IconButton(
               icon: Icon(
                 _isDragMode ? Icons.check_circle_rounded : Icons.menu_rounded,
@@ -315,34 +345,201 @@ class _MainHubState extends State<MainHub> {
         ],
       ),
       body: currentScreen,
-      floatingActionButton: (_selectedIndex == 0 && _isDragMode)
+      floatingActionButton: (!_isDeviceFree && _selectedIndex == 0 && _isDragMode)
           ? FloatingActionButton.extended(
         onPressed: _showCreateFolderDialog,
-        icon: const Icon(Icons.create_new_folder),
-        label: Text("add_room".tr()),
+        icon: const Icon(Icons.groups_rounded),
+        label: Text("create_new_group".tr()),
         backgroundColor: colorScheme.primary,
         foregroundColor: colorScheme.onPrimary,
       )
           : null,
       bottomNavigationBar: BottomNavigationBar(
-        items: <BottomNavigationBarItem>[
-          BottomNavigationBarItem(
-              icon: const Icon(Icons.devices_other_rounded),
-              label: 'my_devices'.tr()
-          ),
-          BottomNavigationBarItem(
-              icon: const Icon(Icons.sync_rounded),
-              label: 'sync'.tr()
-          ),
-          BottomNavigationBarItem(
-              icon: const Icon(Icons.people_alt_rounded),
-              label: 'relatives'.tr()
-          ),
-        ],
-        currentIndex: _selectedIndex,
+        items: _isDeviceFree
+            ? <BottomNavigationBarItem>[
+                BottomNavigationBarItem(
+                    icon: const Icon(Icons.dashboard_rounded),
+                    label: 'dashboard'.tr()),
+                BottomNavigationBarItem(
+                    icon: const Icon(Icons.people_alt_rounded),
+                    label: 'relatives'.tr()),
+              ]
+            : <BottomNavigationBarItem>[
+                BottomNavigationBarItem(
+                    icon: const Icon(Icons.devices_other_rounded),
+                    label: 'my_devices'.tr()),
+                BottomNavigationBarItem(
+                    icon: const Icon(Icons.sync_rounded),
+                    label: 'sync'.tr()),
+                BottomNavigationBarItem(
+                    icon: const Icon(Icons.people_alt_rounded),
+                    label: 'relatives'.tr()),
+              ],
+        currentIndex: _selectedIndex.clamp(0, _isDeviceFree ? 1 : 2),
         selectedItemColor: colorScheme.primary,
         onTap: _onItemTapped,
       ),
     );
+  }
+}
+
+/// Device-free "Dashboard" sekmesi.
+///
+/// Tek hasta modunda hastanın ilaç detayını (PatientDashboardScreen,
+/// embedded) doğrudan gösterir; çoklu hasta modunda gruplandırılabilir
+/// hasta listesini (PatientListScreen) gösterir. Tercih Ayarlar'dan
+/// değiştirilebilir.
+class _DeviceFreeDashboard extends StatefulWidget {
+  final GlobalKey<PatientListScreenState> patientListKey;
+  const _DeviceFreeDashboard({required this.patientListKey});
+
+  @override
+  State<_DeviceFreeDashboard> createState() => _DeviceFreeDashboardState();
+}
+
+class _DeviceFreeDashboardState extends State<_DeviceFreeDashboard> {
+  final AppModeService _modeService = AppModeService();
+  final PatientService _patientService = PatientService();
+
+  bool _loading = true;
+  bool _multiPatient = false;
+  String? _singlePatientId;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final multi = await _modeService.isMultiPatient();
+    String? patientId;
+    if (!multi) {
+      final user = FirebaseAuth.instance.currentUser;
+      if (user != null) {
+        await _patientService.updateUserPatientList(user.uid, user.email ?? '');
+        final patients =
+            await _patientService.getAllUserPatients(user.uid, user.email ?? '');
+        if (patients.isNotEmpty) patientId = patients.first['id'];
+      }
+    }
+    if (!mounted) return;
+    setState(() {
+      _multiPatient = multi;
+      _singlePatientId = patientId;
+      _loading = false;
+    });
+  }
+
+  Future<void> _createOwnProfile() async {
+    final user = FirebaseAuth.instance.currentUser;
+    if (user == null) return;
+    final controller = TextEditingController(text: user.displayName ?? '');
+    final name = await showDialog<String>(
+      context: context,
+      builder: (context) => AlertDialog(
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(20)),
+        title: Text('patient_name_title'.tr()),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          decoration: InputDecoration(hintText: 'patient_name_hint'.tr()),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(context),
+              child: Text('cancel'.tr())),
+          ElevatedButton(
+              onPressed: () => Navigator.pop(context, controller.text.trim()),
+              child: Text('create'.tr())),
+        ],
+      ),
+    );
+    if (name == null || name.isEmpty) return;
+    setState(() => _loading = true);
+    await _patientService.createPatient(
+        uid: user.uid, rawEmail: user.email ?? '', patientName: name);
+    await _load();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+
+    if (_multiPatient) {
+      // Çoklu hasta: gruplandırılabilir liste + ekleme menüsü.
+      return Scaffold(
+        backgroundColor: Colors.transparent,
+        body: PatientListScreen(key: widget.patientListKey),
+        floatingActionButton: FloatingActionButton(
+          backgroundColor: Theme.of(context).colorScheme.primary,
+          foregroundColor: Colors.white,
+          child: const Icon(Icons.add),
+          onPressed: () {
+            showModalBottomSheet(
+              context: context,
+              shape: const RoundedRectangleBorder(
+                  borderRadius:
+                      BorderRadius.vertical(top: Radius.circular(20))),
+              builder: (context) => SafeArea(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const SizedBox(height: 8),
+                    ListTile(
+                      leading: const Icon(Icons.person_add_rounded),
+                      title: Text('create_new_patient_profile'.tr()),
+                      onTap: () {
+                        Navigator.pop(context);
+                        widget.patientListKey.currentState
+                            ?.showAddPatientDialog();
+                      },
+                    ),
+                    ListTile(
+                      leading: const Icon(Icons.groups_rounded),
+                      title: Text('create_new_group'.tr()),
+                      onTap: () {
+                        Navigator.pop(context);
+                        widget.patientListKey.currentState
+                            ?.showCreateGroupDialog();
+                      },
+                    ),
+                    const SizedBox(height: 8),
+                  ],
+                ),
+              ),
+            );
+          },
+        ),
+      );
+    }
+
+    // Tek hasta: doğrudan ilaç detay ekranı.
+    if (_singlePatientId == null) {
+      return Center(
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              const Icon(Icons.person_add_alt_1_rounded,
+                  size: 64, color: Colors.blueGrey),
+              const SizedBox(height: 16),
+              Text('no_patient_profile'.tr(), textAlign: TextAlign.center),
+              const SizedBox(height: 20),
+              ElevatedButton(
+                onPressed: _createOwnProfile,
+                child: Text('create_patient_profile'.tr()),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return PatientDashboardScreen(
+        patientId: _singlePatientId!, embedded: true);
   }
 }

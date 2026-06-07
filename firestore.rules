@@ -31,5 +31,41 @@ service cloud.firestore {
         allow update, delete: if false;
       }
     }
+
+    // Patients (device-free mode): virtual care profiles identified by
+    // a generated 'patient_<uuid>' ID instead of a MAC address.
+    // Same role hierarchy as dispenser: owner / secondary / read_only.
+    match /patients/{patientId} {
+      allow read: if request.auth != null
+        && (resource.data.owner_mail == request.auth.token.email
+            || request.auth.token.email in resource.data.secondary_mails
+            || request.auth.token.email in resource.data.read_only_mails);
+      // Creator must register themselves as owner.
+      allow create: if request.auth != null
+        && request.resource.data.owner_mail == request.auth.token.email;
+      // Owner and secondary caregivers can edit medications/config;
+      // ownership transfer is not allowed.
+      allow update: if request.auth != null
+        && (resource.data.owner_mail == request.auth.token.email
+            || request.auth.token.email in resource.data.secondary_mails)
+        && request.resource.data.owner_mail == resource.data.owner_mail;
+      allow delete: if request.auth != null
+        && resource.data.owner_mail == request.auth.token.email;
+
+      // Verifications subcollection (same shape as dispenser)
+      match /verifications/{verificationId} {
+        allow read: if request.auth != null;
+        allow create: if request.auth != null;
+        allow update: if request.auth != null;
+        allow delete: if false;
+      }
+
+      // Logs subcollection (same shape as dispenser)
+      match /logs/{logId} {
+        allow read: if request.auth != null;
+        allow create: if request.auth != null;
+        allow update, delete: if false;
+      }
+    }
   }
 }

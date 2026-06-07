@@ -138,9 +138,9 @@ class _PermissionsScreenState extends State<PermissionsScreen>
 
     if (!isDisabled) {
       final go = await _showGoToSettingsDialog(
-        title: 'Pil Tasarrufu İzni',
-        message: 'Alarmların arka planda çalışması için pil optimizasyonunu kapatmanız gerekiyor. Bu, alarmların sistem tarafından kapatılmasını engelleyecek.',
-        button: 'Ayarları Aç',
+        title: 'battery_permission_title'.tr(),
+        message: 'battery_permission_desc'.tr(),
+        button: 'open_settings'.tr(),
       );
       if (go) {
         _needsRecheckOnResume = true;

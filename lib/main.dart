@@ -5,6 +5,7 @@ import 'package:medTrackPlus/app/alarm_ring_screen.dart';
 import 'package:medTrackPlus/app/login_screen.dart';
 import 'package:medTrackPlus/app/main_hub.dart';
 import 'package:medTrackPlus/app/welcome_screen.dart';
+import 'package:medTrackPlus/services/app_mode_service.dart';
 import 'package:medTrackPlus/services/auth_service.dart';
 import 'package:medTrackPlus/services/notification_service.dart';
 import 'package:easy_localization/easy_localization.dart';
@@ -264,6 +265,11 @@ class _RootGateState extends State<RootGate> {
       if (hasCachedUid && FirebaseAuth.instance.currentUser == null) {
         await AuthService().signInSilently();
       }
+
+      // ✅ Uygulama modunu yükle (device / device-free) → modeProvider.
+      // MainHub açılmadan önce hazır olmalı ki doğru sekmeler gösterilsin.
+      await AppModeService()
+          .loadMode(uid: FirebaseAuth.instance.currentUser?.uid);
 
       // Cold start alarm kontrolü
       final alarms = await Alarm.getAlarms();

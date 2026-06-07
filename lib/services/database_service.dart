@@ -1,4 +1,5 @@
 import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:easy_localization/easy_localization.dart';
 import 'package:firebase_core/firebase_core.dart';
 import 'package:firebase_database/firebase_database.dart' as rtdb;
 
@@ -16,6 +17,42 @@ class DatabaseService {
 
   // --- YARDIMCI METOTLAR ---
   String _sanitize(String email) => email.trim().toLowerCase();
+
+  // --- ENTITY ÇÖZÜMLEME (device-free desteği) ---
+  // Cihazlar MAC adresiyle ('AA:BB:...'), hastalar 'patient_<uuid>' ID'siyle
+  // tanımlanır. Aynı rol hiyerarşisi (owner/secondary/read_only) iki
+  // koleksiyonda da geçerlidir: 'dispenser' ve 'patients'.
+  static bool isPatientId(String entityId) => entityId.startsWith('patient_');
+  String entityCollection(String entityId) =>
+      isPatientId(entityId) ? 'patients' : 'dispenser';
+  DocumentReference<Map<String, dynamic>> _entityDoc(String entityId) =>
+      _firestore.collection(entityCollection(entityId)).doc(entityId);
+  // Cihazlarda ilaç listesi 'section_config', hastalarda 'medications'
+  // alanında tutulur (aynı eleman şekli: name/isActive/pillCount/schedule).
+  String _medsField(String entityId) =>
+      isPatientId(entityId) ? 'medications' : 'section_config';
+
+  /// Hastalarda pillCount Firestore'daki medications dizisinde tutulur
+  /// (RTDB yok). delta: +1 iade, -1 alındı.
+  Future<void> _adjustPatientPillCount(String patientId, int medIndex, int delta) async {
+    try {
+      final docRef = _entityDoc(patientId);
+      await _firestore.runTransaction((transaction) async {
+        final snapshot = await transaction.get(docRef);
+        if (!snapshot.exists) return;
+        final data = snapshot.data() as Map<String, dynamic>;
+        List<dynamic> meds = List.from(data['medications'] ?? []);
+        if (medIndex >= 0 && medIndex < meds.length) {
+          final current = (meds[medIndex]['pillCount'] ?? 0) as int;
+          meds[medIndex]['pillCount'] = (current + delta).clamp(0, 9999);
+          transaction.update(docRef, {'medications': meds});
+        }
+      });
+      print('[DatabaseService] Patient pill count adjusted: $patientId med#$medIndex delta=$delta');
+    } catch (e) {
+      print('[DatabaseService] _adjustPatientPillCount error: $e');
+    }
+  }
 
   // ===========================================================================
   // --- BÖLÜM 1: CİHAZ LİSTELEME VE SENKRONİZASYON ---
@@ -41,7 +78,7 @@ class DatabaseService {
         for (var doc in snapshot.docs) {
           if (!addedMacs.contains(doc.id)) {
             addedMacs.add(doc.id);
-            String name = 'Bilinmeyen Cihaz';
+            String name = 'unknown_device'.tr();
             if (doc.data().containsKey('device_name')) {
               name = doc.get('device_name');
             }
@@ -99,6 +136,11 @@ class DatabaseService {
   // --- RTDB İADE İŞLEMİ (DÜZELTİLDİ: Transaction yerine Get-Set) ---
   Future<void> incrementPillCount(String macAddress, int sectionIndex) async {
     if (macAddress.isEmpty) return;
+    if (isPatientId(macAddress)) {
+      // Device-free: hasta stoğu Firestore'da tutulur.
+      await _adjustPatientPillCount(macAddress, sectionIndex, 1);
+      return;
+    }
     try {
       rtdb.DatabaseReference ref = _rtdb.ref("dispensers/$macAddress/config/section_$sectionIndex/pillCount");
 
@@ -136,7 +178,7 @@ class DatabaseService {
 
       // 1. KONTROL: Sistem zaten iade yapmış mı?
       final sw = Stopwatch()..start();
-      final refundCheck = await _firestore.collection('dispenser').doc(macAddress).collection('logs')
+      final refundCheck = await _entityDoc(macAddress).collection('logs')
           .where('type', isEqualTo: 'system_refund')
           .where('section', isEqualTo: sectionIndex)
           .where('timestamp', isGreaterThan: fiveMinutesAgo)
@@ -154,7 +196,7 @@ class DatabaseService {
       await incrementPillCount(macAddress, sectionIndex);
 
       // 3. İŞLEM: "İade Yapıldı" Logu At (Kilidi Aktif Et)
-      await _firestore.collection('dispenser').doc(macAddress).collection('logs').add({
+      await _entityDoc(macAddress).collection('logs').add({
         'type': 'system_refund',
         'section': sectionIndex,
         'triggered_by': currentUserId,
@@ -172,18 +214,19 @@ class DatabaseService {
   Future<void> updatePillCountOnly(String macAddress, int sectionIndex, int newCount) async {
     if (macAddress.isEmpty) return;
     try {
-      DocumentReference docRef = _firestore.collection('dispenser').doc(macAddress);
+      DocumentReference docRef = _entityDoc(macAddress);
+      final String medsField = _medsField(macAddress);
 
       await _firestore.runTransaction((transaction) async {
         DocumentSnapshot snapshot = await transaction.get(docRef);
         if (!snapshot.exists) return;
 
         Map<String, dynamic> data = snapshot.data() as Map<String, dynamic>;
-        List<dynamic> config = List.from(data['section_config'] ?? []);
+        List<dynamic> config = List.from(data[medsField] ?? []);
 
         if (sectionIndex < config.length) {
           config[sectionIndex]['pillCount'] = newCount;
-          transaction.update(docRef, {'section_config': config});
+          transaction.update(docRef, {medsField: config});
         }
       });
       print("Firestore Sync OK: Bölme $sectionIndex -> $newCount");
@@ -200,7 +243,7 @@ class DatabaseService {
     required String userId,
   }) async {
     try {
-      await _firestore.collection('dispenser').doc(macAddress).collection('logs').add({
+      await _entityDoc(macAddress).collection('logs').add({
         'type': 'user_feedback',
         'section': sectionIndex,
         'success': successful,
@@ -219,7 +262,7 @@ class DatabaseService {
       final startOfWeek = now.subtract(const Duration(days: 7));
 
       final sw = Stopwatch()..start();
-      final query = await _firestore.collection('dispenser').doc(macAddress).collection('logs')
+      final query = await _entityDoc(macAddress).collection('logs')
           .where('userId', isEqualTo: targetUserId)
           .where('timestamp', isGreaterThan: startOfWeek)
           .orderBy('timestamp', descending: true)
@@ -279,8 +322,7 @@ class DatabaseService {
       // Firestore: detaylı verification geçmişi
       final startStr = start.toUtc().toIso8601String();
       final endStr = end.toUtc().toIso8601String();
-      final allDocs = await _firestore
-          .collection('dispenser').doc(macAddress)
+      final allDocs = await _entityDoc(macAddress)
           .collection('verifications')
           .get();
       final query = allDocs.docs.where((doc) {
@@ -396,7 +438,8 @@ class DatabaseService {
   Future<void> saveSectionConfig(String macAddress, List<Map<String, dynamic>> sections) async {
     if (macAddress.isEmpty) return;
     try {
-      await _firestore.collection('dispenser').doc(macAddress).set({'section_config': sections}, SetOptions(merge: true));
+      await _entityDoc(macAddress).set({_medsField(macAddress): sections}, SetOptions(merge: true));
+      if (isPatientId(macAddress)) return; // Hasta profili: RTDB senkronu yok.
       Map<String, dynamic> rtdbData = {};
       for (int i = 0; i < sections.length; i++) {
         rtdbData['section_$i'] = {
@@ -412,7 +455,7 @@ class DatabaseService {
   }
 
   Future<void> toggleBuzzer(String macAddress, bool makeItRing) async {
-    if (macAddress.isEmpty) return;
+    if (macAddress.isEmpty || isPatientId(macAddress)) return; // Hasta: donanım yok.
     try {
       await _firestore.collection('dispenser').doc(macAddress).set({'alarm': makeItRing}, SetOptions(merge: true));
       rtdb.DatabaseReference ref = _rtdb.ref("dispensers/$macAddress/buzzer");
@@ -422,13 +465,14 @@ class DatabaseService {
 
   Future<void> updateDeviceName(String macAddress, String newName) async {
     if (macAddress.isEmpty || newName.isEmpty) return;
-    try { await _firestore.collection('dispenser').doc(macAddress).update({'device_name': newName}); } catch (e) { print('Error updating name: $e'); }
+    final field = isPatientId(macAddress) ? 'patient_name' : 'device_name';
+    try { await _entityDoc(macAddress).update({field: newName}); } catch (e) { print('Error updating name: $e'); }
   }
 
   // --- DISPENSE & VERIFICATION BRIDGE ---
 
   Future<void> triggerDispense(String macAddress, int sectionIndex) async {
-    if (macAddress.isEmpty) return;
+    if (macAddress.isEmpty || isPatientId(macAddress)) return; // Hasta: motor yok.
     try {
       await _rtdb.ref("dispensers/$macAddress/commands/dispense").set({
         'section': sectionIndex,
@@ -442,6 +486,10 @@ class DatabaseService {
 
   Future<void> decrementPillCount(String macAddress, int sectionIndex) async {
     if (macAddress.isEmpty) return;
+    if (isPatientId(macAddress)) {
+      await _adjustPatientPillCount(macAddress, sectionIndex, -1);
+      return;
+    }
     try {
       final ref = _rtdb.ref("dispensers/$macAddress/config/section_$sectionIndex/pillCount");
       final snapshot = await ref.get();
@@ -474,7 +522,7 @@ class DatabaseService {
   }) async {
     if (macAddress.isEmpty) return;
     try {
-      await _firestore.collection('dispenser').doc(macAddress).collection('logs').add({
+      await _entityDoc(macAddress).collection('logs').add({
         'type': 'dispense_verify',
         'section': sectionIndex,
         'userId': userId,
@@ -500,7 +548,7 @@ class DatabaseService {
   }) async {
     if (macAddress.isEmpty) return;
     try {
-      await _firestore.collection('dispenser').doc(macAddress).collection('logs').add({
+      await _entityDoc(macAddress).collection('logs').add({
         'type': 'verification_cancel',
         'section': sectionIndex,
         'userId': userId,
@@ -516,14 +564,14 @@ class DatabaseService {
   // --- PRESENCE & VERIFICATION ---
 
   Future<void> updatePresence(String macAddress, bool isPresent) async {
-    if (macAddress.isEmpty) return;
+    if (macAddress.isEmpty || isPatientId(macAddress)) return; // Hasta: donanım yok.
     try {
       await _rtdb.ref("dispensers/$macAddress/presence").set(isPresent);
     } catch (e) { print('Presence update error: $e'); }
   }
 
   Future<bool> getPresence(String macAddress) async {
-    if (macAddress.isEmpty) return false;
+    if (macAddress.isEmpty || isPatientId(macAddress)) return false;
     try {
       final snapshot = await _rtdb.ref("dispensers/$macAddress/presence").get();
       if (snapshot.exists && snapshot.value is bool) return snapshot.value as bool;
@@ -532,14 +580,14 @@ class DatabaseService {
   }
 
   Future<void> setVerificationRequired(String macAddress, bool required) async {
-    if (macAddress.isEmpty) return;
+    if (macAddress.isEmpty || isPatientId(macAddress)) return;
     try {
       await _rtdb.ref("dispensers/$macAddress/verification_required").set(required);
     } catch (e) { print('Verification required update error: $e'); }
   }
 
   Future<bool> getVerificationRequired(String macAddress) async {
-    if (macAddress.isEmpty) return false;
+    if (macAddress.isEmpty || isPatientId(macAddress)) return false;
     try {
       final snapshot = await _rtdb.ref("dispensers/$macAddress/verification_required").get();
       if (snapshot.exists && snapshot.value is bool) return snapshot.value as bool;
@@ -549,17 +597,40 @@ class DatabaseService {
 
   Future<void> saveLastVerification(String macAddress, {required double score, required String status}) async {
     if (macAddress.isEmpty) return;
+    final payload = {
+      'timestamp': DateTime.now().millisecondsSinceEpoch ~/ 1000,
+      'score': score,
+      'status': status,
+    };
+    if (isPatientId(macAddress)) {
+      // Device-free: RTDB yerine hasta dokümanına yaz.
+      try {
+        await _entityDoc(macAddress).set({'last_verification': payload}, SetOptions(merge: true));
+      } catch (e) { print('Last verification save error (patient): $e'); }
+      return;
+    }
     try {
-      await _rtdb.ref("dispensers/$macAddress/last_verification").set({
-        'timestamp': DateTime.now().millisecondsSinceEpoch ~/ 1000,
-        'score': score,
-        'status': status,
-      });
+      await _rtdb.ref("dispensers/$macAddress/last_verification").set(payload);
     } catch (e) { print('Last verification save error: $e'); }
   }
 
   Future<Map<String, dynamic>?> getLastVerification(String macAddress) async {
     if (macAddress.isEmpty) return null;
+    if (isPatientId(macAddress)) {
+      try {
+        final doc = await _entityDoc(macAddress).get();
+        final raw = doc.data()?['last_verification'];
+        if (raw is Map) {
+          final data = Map<String, dynamic>.from(raw);
+          return {
+            'timestamp': data['timestamp'] ?? 0,
+            'score': (data['score'] ?? 0).toDouble(),
+            'status': data['status'] ?? 'unknown',
+          };
+        }
+      } catch (e) { print('Last verification read error (patient): $e'); }
+      return null;
+    }
     try {
       final snapshot = await _rtdb.ref("dispensers/$macAddress/last_verification").get();
       if (snapshot.exists && snapshot.value is Map) {
@@ -582,7 +653,7 @@ class DatabaseService {
     if (rawEmail == null || macAddress.isEmpty) return DeviceRole.none;
     final String email = _sanitize(rawEmail);
     try {
-      final doc = await _firestore.collection('dispenser').doc(macAddress).get();
+      final doc = await _entityDoc(macAddress).get();
       if (!doc.exists) return DeviceRole.none;
       final data = doc.data()!;
       if ((data['owner_mail'] as String?)?.toLowerCase() == email) return DeviceRole.owner;
@@ -597,13 +668,13 @@ class DatabaseService {
   Future<void> addReadOnlyUser(String macAddress, String rawEmail) async {
     final String email = _sanitize(rawEmail);
     if (macAddress.isEmpty || email.isEmpty) return;
-    try { await _firestore.collection('dispenser').doc(macAddress).update({'read_only_mails': FieldValue.arrayUnion([email])}); } catch (e) {}
+    try { await _entityDoc(macAddress).update({'read_only_mails': FieldValue.arrayUnion([email])}); } catch (e) {}
   }
 
   Future<void> promoteToSecondary(String macAddress, String targetRawEmail) async {
     final String targetEmail = _sanitize(targetRawEmail);
     try {
-      final deviceRef = _firestore.collection('dispenser').doc(macAddress);
+      final deviceRef = _entityDoc(macAddress);
       await _firestore.runTransaction((transaction) async {
         final snapshot = await transaction.get(deviceRef);
         if (!snapshot.exists) return;
@@ -620,7 +691,7 @@ class DatabaseService {
   Future<void> demoteToReadOnly(String macAddress, String targetRawEmail) async {
     final String targetEmail = _sanitize(targetRawEmail);
     try {
-      final deviceRef = _firestore.collection('dispenser').doc(macAddress);
+      final deviceRef = _entityDoc(macAddress);
       await _firestore.runTransaction((transaction) async {
         final snapshot = await transaction.get(deviceRef);
         if (!snapshot.exists) return;
@@ -636,7 +707,7 @@ class DatabaseService {
 
   Future<void> removeUser(String macAddress, String rawEmail) async {
     final String email = _sanitize(rawEmail);
-    try { await _firestore.collection('dispenser').doc(macAddress).update({'read_only_mails': FieldValue.arrayRemove([email]), 'secondary_mails': FieldValue.arrayRemove([email])}); } catch (e) { print('Error removing user: $e'); }
+    try { await _entityDoc(macAddress).update({'read_only_mails': FieldValue.arrayRemove([email]), 'secondary_mails': FieldValue.arrayRemove([email])}); } catch (e) { print('Error removing user: $e'); }
   }
 
   // ===========================================================================
@@ -644,7 +715,7 @@ class DatabaseService {
   // ===========================================================================
 
   Future<String> addDeviceManually(String uid, String rawEmail, String macAddress) async {
-    if (uid.isEmpty || macAddress.isEmpty || rawEmail.isEmpty) return 'Geçersiz bilgi.';
+    if (uid.isEmpty || macAddress.isEmpty || rawEmail.isEmpty) return 'invalid_info'.tr();
     final String userEmail = _sanitize(rawEmail);
     try {
       final deviceRef = _firestore.collection('dispenser').doc(macAddress);
@@ -655,7 +726,7 @@ class DatabaseService {
         if (userDoc.exists) unvisibleList = userDoc.data()?['unvisible_devices'] ?? [];
         if (unvisibleList.contains(macAddress)) {
           transaction.update(userRef, {'unvisible_devices': FieldValue.arrayRemove([macAddress]), 'visible_devices': FieldValue.arrayUnion([macAddress])});
-          return 'Cihaz tekrar görünür yapıldı.';
+          return 'device_re_visible'.tr();
         }
         final deviceDoc = await transaction.get(deviceRef);
         if (!deviceDoc.exists) {
@@ -679,7 +750,7 @@ class DatabaseService {
         }
         return 'success';
       });
-    } catch (e) { return 'Hata: $e'; }
+    } catch (e) { return 'error_occurred'.tr(args: [e.toString()]); }
   }
 
   // ===========================================================================
@@ -769,10 +840,14 @@ class DatabaseService {
       allDeviceIds.addAll(userData['owned_dispensers'] ?? []);
       allDeviceIds.addAll(userData['secondary_dispensers'] ?? []);
       allDeviceIds.addAll(userData['read_only_dispensers'] ?? []);
+      // Device-free hasta profilleri de yakın keşfine dahil edilir.
+      allDeviceIds.addAll(userData['owned_patients'] ?? []);
+      allDeviceIds.addAll(userData['secondary_patients'] ?? []);
+      allDeviceIds.addAll(userData['read_only_patients'] ?? []);
       if (allDeviceIds.isEmpty) return [];
 
       final deviceDocs = await Future.wait(
-        allDeviceIds.map((deviceId) => _firestore.collection('dispenser').doc(deviceId).get()),
+        allDeviceIds.map((deviceId) => _entityDoc(deviceId.toString()).get()),
       );
       for (var deviceDoc in deviceDocs) {
         if (deviceDoc.exists) {

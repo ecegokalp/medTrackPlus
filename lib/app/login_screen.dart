@@ -5,7 +5,10 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:medTrackPlus/services/database_service.dart';
-import 'package:medTrackPlus/features/ble_provisioning/sync_screen.dart';
+import 'package:medTrackPlus/app/device_free/mode_selection_screen.dart';
+import 'package:medTrackPlus/beta/enums/app_mode.dart';
+import 'package:medTrackPlus/services/app_mode_service.dart';
+import 'package:medTrackPlus/services/patient_service.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -64,19 +67,50 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
       final user = await _authService.getOrCreateUser();
 
       if (user != null && mounted) {
-        // Cihazı var mı kontrol et?
+        final modeService = AppModeService();
         final dbService = DatabaseService();
+        final patientService = PatientService();
+
+        // Hasta rol listelerini tazele (paylaşılan profiller görünsün).
+        try {
+          await patientService.updateUserPatientList(user.uid, user.email ?? '');
+        } catch (_) {}
+
+        // Kalıcı modu yükle (önce local, yoksa Firestore).
+        await modeService.loadMode(uid: user.uid);
+        final hasChosen = await modeService.hasChosenMode();
+
+        if (!mounted) return;
+
+        if (hasChosen) {
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (context) => const MainHub()),
+          );
+          return;
+        }
+
+        // Mod hiç seçilmemiş: mevcut verilerden çıkarım yap.
         final hasDevice = await dbService.hasAnyAssociatedDevice(user.uid);
+        final hasPatient = await patientService.hasAnyPatient(user.uid);
 
         if (!mounted) return;
 
         if (hasDevice) {
+          await modeService.saveMode(AppMode.device, uid: user.uid);
+          if (!mounted) return;
+          Navigator.of(context).pushReplacement(
+            MaterialPageRoute(builder: (context) => const MainHub()),
+          );
+        } else if (hasPatient) {
+          await modeService.saveMode(AppMode.deviceFree, uid: user.uid);
+          if (!mounted) return;
           Navigator.of(context).pushReplacement(
             MaterialPageRoute(builder: (context) => const MainHub()),
           );
         } else {
+          // İlk kurulum: "MedTrack+ cihazınız var mı?" sorusu.
           Navigator.of(context).pushReplacement(
-            MaterialPageRoute(builder: (context) => const SyncScreen(isOnboarding: true)),
+            MaterialPageRoute(builder: (context) => const AppModeSelectionScreen()),
           );
         }
         return;
@@ -176,7 +210,7 @@ class _LoginScreenState extends State<LoginScreen> with SingleTickerProviderStat
                     child: Padding(
                       padding: const EdgeInsets.only(bottom: 20.0),
                       child: Text(
-                        "MedTrack v0.5",
+                        "MedTrack v1.4",
                         style: GoogleFonts.inter(
                           fontSize: 12,
                           color: Colors.blueGrey.shade300,

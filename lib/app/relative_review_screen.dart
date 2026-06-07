@@ -3,8 +3,8 @@ import 'dart:math' as math;
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:easy_localization/easy_localization.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'package:intl/intl.dart';
 import 'package:medTrackPlus/beta/verification/cloud_verification_service.dart';
 import 'package:medTrackPlus/main.dart' show AppColors;
 import 'package:video_player/video_player.dart';
@@ -50,6 +50,15 @@ class _RelativeReviewScreenState extends State<RelativeReviewScreen> {
   bool _submitting = false;
   bool _loadingDetail = false;
 
+  /// Entity koleksiyonu: cihazlar 'dispenser', device-free hastalar 'patients'.
+  CollectionReference<Map<String, dynamic>> get _verificationsRef =>
+      FirebaseFirestore.instance
+          .collection(widget.macAddress.startsWith('patient_')
+              ? 'patients'
+              : 'dispenser')
+          .doc(widget.macAddress)
+          .collection('verifications');
+
   @override
   void initState() {
     super.initState();
@@ -82,7 +91,7 @@ class _RelativeReviewScreenState extends State<RelativeReviewScreen> {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _listError = 'Videolar yüklenemedi: $e';
+          _listError = 'videos_load_error'.tr(args: [e.toString()]);
           _loadingList = false;
         });
       }
@@ -91,12 +100,7 @@ class _RelativeReviewScreenState extends State<RelativeReviewScreen> {
 
   Future<void> _selectByVerificationId(String verificationId) async {
     try {
-      final doc = await FirebaseFirestore.instance
-          .collection('dispenser')
-          .doc(widget.macAddress)
-          .collection('verifications')
-          .doc(verificationId)
-          .get();
+      final doc = await _verificationsRef.doc(verificationId).get();
       if (doc.exists) {
         final data = doc.data()!;
         final storagePath = data['storagePath'] as String?;
@@ -130,10 +134,7 @@ class _RelativeReviewScreenState extends State<RelativeReviewScreen> {
     });
 
     try {
-      final query = await FirebaseFirestore.instance
-          .collection('dispenser')
-          .doc(widget.macAddress)
-          .collection('verifications')
+      final query = await _verificationsRef
           .where('storagePath', isEqualTo: video['fullPath'])
           .limit(1)
           .get();
@@ -165,7 +166,7 @@ class _RelativeReviewScreenState extends State<RelativeReviewScreen> {
       });
     }
     if (url.isEmpty) {
-      if (mounted) setState(() => _videoError = 'Video bulunamadı');
+      if (mounted) setState(() => _videoError = 'video_not_found'.tr());
       return;
     }
     final ctrl = VideoPlayerController.networkUrl(Uri.parse(url));
@@ -173,7 +174,7 @@ class _RelativeReviewScreenState extends State<RelativeReviewScreen> {
     ctrl.initialize().then((_) {
       if (mounted) setState(() => _videoInitialized = true);
     }).catchError((e) {
-      if (mounted) setState(() => _videoError = 'Video yüklenemedi');
+      if (mounted) setState(() => _videoError = 'video_load_error'.tr());
     });
   }
 
@@ -181,18 +182,13 @@ class _RelativeReviewScreenState extends State<RelativeReviewScreen> {
     if (_selectedDocId == null) return;
     setState(() => _submitting = true);
     try {
-      await FirebaseFirestore.instance
-          .collection('dispenser')
-          .doc(widget.macAddress)
-          .collection('verifications')
-          .doc(_selectedDocId)
-          .update({
+      await _verificationsRef.doc(_selectedDocId).update({
         'review_decision': decision,
         'review_timestamp': FieldValue.serverTimestamp(),
       });
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-        content: Text(decision == 'approved' ? 'Onaylandı.' : 'Reddedildi.'),
+        content: Text(decision == 'approved' ? 'approved_label'.tr() : 'rejected_label'.tr()),
         backgroundColor:
             decision == 'approved' ? AppColors.turquoise : Colors.redAccent,
         behavior: SnackBarBehavior.floating,
@@ -202,7 +198,7 @@ class _RelativeReviewScreenState extends State<RelativeReviewScreen> {
     } catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Karar gönderilemedi: $e'),
+          content: Text('decision_send_error'.tr(args: [e.toString()])),
           backgroundColor: Colors.redAccent,
         ));
       }
@@ -219,7 +215,7 @@ class _RelativeReviewScreenState extends State<RelativeReviewScreen> {
       backgroundColor: AppColors.background,
       appBar: AppBar(
         title: Text(
-          'Yakın İncelemesi',
+          'relative_review_title'.tr(),
           style: GoogleFonts.inter(
             fontWeight: FontWeight.w800,
             color: AppColors.deepSea,
@@ -233,7 +229,7 @@ class _RelativeReviewScreenState extends State<RelativeReviewScreen> {
           IconButton(
             icon: const Icon(Icons.refresh_rounded,
                 color: AppColors.deepSea),
-            tooltip: 'Yenile',
+            tooltip: 'refresh'.tr(),
             onPressed: _loadingList ? null : _loadVideoList,
           ),
         ],
@@ -267,7 +263,7 @@ class _RelativeReviewScreenState extends State<RelativeReviewScreen> {
                           const SizedBox(height: 16),
                           _SectionTitle(
                               icon: Icons.history_rounded,
-                              text: 'Son Kayıtlar'),
+                              text: 'recent_recordings'.tr()),
                           const SizedBox(height: 8),
                           _VideoCarousel(
                             videos: _videos,
@@ -277,7 +273,7 @@ class _RelativeReviewScreenState extends State<RelativeReviewScreen> {
                           const SizedBox(height: 20),
                           _SectionTitle(
                               icon: Icons.play_circle_outline_rounded,
-                              text: 'Seçilen Doğrulama'),
+                              text: 'selected_verification'.tr()),
                           const SizedBox(height: 8),
                           _VideoPlayerCard(
                             controller: _videoController,
@@ -381,7 +377,7 @@ class _HeaderStrip extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Cihaz: $macAddress',
+                  'device_prefix'.tr(args: [macAddress]),
                   style: GoogleFonts.inter(
                     fontSize: 13,
                     fontWeight: FontWeight.w700,
@@ -390,7 +386,7 @@ class _HeaderStrip extends StatelessWidget {
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  '$count video kaydı bulundu',
+                  'video_count_found'.tr(args: [count.toString()]),
                   style: GoogleFonts.inter(
                     fontSize: 11,
                     color: Colors.white.withValues(alpha: 0.85),
@@ -429,7 +425,7 @@ class _EmptyState extends StatelessWidget {
             ),
             const SizedBox(height: 18),
             Text(
-              'Henüz Video Yok',
+              'no_videos_yet'.tr(),
               style: GoogleFonts.inter(
                 fontSize: 18,
                 fontWeight: FontWeight.w800,
@@ -438,7 +434,7 @@ class _EmptyState extends StatelessWidget {
             ),
             const SizedBox(height: 8),
             Text(
-              'Bu cihaz için henüz video doğrulama kaydı bulunmuyor.',
+              'no_videos_desc'.tr(),
               textAlign: TextAlign.center,
               style: GoogleFonts.inter(
                 fontSize: 13,
@@ -547,7 +543,7 @@ class _VideoCarousel extends StatelessWidget {
                   ),
                   const Spacer(),
                   Text(
-                    ts.isEmpty ? 'Tarih ?' : ts,
+                    ts.isEmpty ? 'date_unknown'.tr() : ts,
                     style: GoogleFonts.inter(
                       fontSize: 12,
                       fontWeight: FontWeight.w700,
@@ -935,22 +931,22 @@ class _MetadataCard extends StatelessWidget {
       case 'success':
         classColor = AppColors.turquoise;
         classIcon = Icons.verified_rounded;
-        classLabel = 'BAŞARILI';
+        classLabel = 'classification_success'.tr();
         break;
       case 'suspicious':
         classColor = Colors.orange;
         classIcon = Icons.help_outline_rounded;
-        classLabel = 'ŞÜPHELİ';
+        classLabel = 'classification_suspicious'.tr();
         break;
       case 'rejected':
         classColor = Colors.redAccent;
         classIcon = Icons.cancel_rounded;
-        classLabel = 'REDDEDİLDİ';
+        classLabel = 'classification_rejected'.tr();
         break;
       default:
         classColor = Colors.grey;
         classIcon = Icons.info_outline_rounded;
-        classLabel = 'BİLİNMİYOR';
+        classLabel = 'classification_unknown'.tr();
     }
 
     return Container(
@@ -1036,7 +1032,7 @@ class _MetadataCard extends StatelessWidget {
           const SizedBox(height: 14),
           if (v == null)
             Text(
-              'Bu video icin meta veri bulunamadi.',
+              'no_metadata_for_video'.tr(),
               style: GoogleFonts.inter(
                 fontSize: 12,
                 color: Colors.grey.shade600,
@@ -1051,15 +1047,15 @@ class _MetadataCard extends StatelessWidget {
                 if (section != null)
                   _Chip(
                     icon: Icons.layers_rounded,
-                    label: 'Bolme',
+                    label: 'section_label'.tr(),
                     value: '$section',
                     color: AppColors.skyBlue,
                   ),
                 if (detectionConfirmed != null)
                   _Chip(
                     icon: Icons.visibility_rounded,
-                    label: 'Gorsel',
-                    value: detectionConfirmed ? 'Evet' : 'Hayir',
+                    label: 'visual_detection_label'.tr(),
+                    value: detectionConfirmed ? 'yes'.tr() : 'no'.tr(),
                     color: detectionConfirmed
                         ? AppColors.turquoise
                         : Colors.orange,
@@ -1067,8 +1063,8 @@ class _MetadataCard extends StatelessWidget {
                 if (userConfirmed != null)
                   _Chip(
                     icon: Icons.person_rounded,
-                    label: 'Onay',
-                    value: userConfirmed ? 'Evet' : 'Hayir',
+                    label: 'confirmation_label'.tr(),
+                    value: userConfirmed ? 'yes'.tr() : 'no'.tr(),
                     color: userConfirmed
                         ? AppColors.turquoise
                         : Colors.redAccent,
@@ -1076,7 +1072,7 @@ class _MetadataCard extends StatelessWidget {
                 if (highestPhase != null)
                   _Chip(
                     icon: Icons.show_chart_rounded,
-                    label: 'En Yuksek Faz',
+                    label: 'highest_phase_label'.tr(),
                     value: _humanizePhase(highestPhase),
                     color: AppColors.deepSea,
                   ),
@@ -1097,14 +1093,14 @@ class _MetadataCard extends StatelessWidget {
                 ),
                 const SizedBox(width: 8),
                 Text(
-                  'Yakin karari: ',
+                  '${'relative_decision_prefix'.tr()} ',
                   style: GoogleFonts.inter(
                     fontSize: 13,
                     color: Colors.grey.shade700,
                   ),
                 ),
                 Text(
-                  review == 'approved' ? 'Onaylandi' : 'Reddedildi',
+                  review == 'approved' ? 'approved_label'.tr() : 'rejected_label'.tr(),
                   style: GoogleFonts.inter(
                     fontSize: 13,
                     fontWeight: FontWeight.w700,
@@ -1131,18 +1127,19 @@ class _MetadataCard extends StatelessWidget {
 
   static String _humanizePhase(String name) {
     const map = {
-      'noFace': 'Yuz Yok',
-      'faceDetected': 'Yuz Algilandi',
-      'mouthOpen': 'Agiz Acik',
-      'pillOnTongue': 'Hap Dilde',
-      'mouthClosedWithPill': 'Agiz Kapandi',
-      'drinking': 'Su Iciliyor',
-      'mouthReopened': 'Agiz Tekrar Acildi',
-      'swallowConfirmed': 'Yutma Onaylandi',
-      'swallowFailed': 'Yutma Basarisiz',
-      'timeoutExpired': 'Sure Doldu',
+      'noFace': 'phase_no_face',
+      'faceDetected': 'phase_face_detected',
+      'mouthOpen': 'phase_mouth_open',
+      'pillOnTongue': 'phase_pill_on_tongue',
+      'mouthClosedWithPill': 'phase_mouth_closed_with_pill',
+      'drinking': 'phase_drinking',
+      'mouthReopened': 'phase_mouth_reopened',
+      'swallowConfirmed': 'phase_swallow_confirmed',
+      'swallowFailed': 'phase_swallow_failed',
+      'timeoutExpired': 'phase_timeout_expired',
     };
-    return map[name] ?? name;
+    final key = map[name];
+    return key != null ? key.tr() : name;
   }
 }
 
@@ -1211,7 +1208,7 @@ class _DecisionBar extends StatelessWidget {
       children: [
         Expanded(
           child: _GradientButton(
-            label: 'Reddet',
+            label: 'reject'.tr(),
             icon: Icons.thumb_down_alt_rounded,
             colors: const [Color(0xFFE53935), Color(0xFFB71C1C)],
             onPressed: submitting ? null : onReject,
@@ -1221,7 +1218,7 @@ class _DecisionBar extends StatelessWidget {
         Expanded(
           flex: 2,
           child: _GradientButton(
-            label: 'Onayla',
+            label: 'approve'.tr(),
             icon: Icons.thumb_up_alt_rounded,
             colors: const [AppColors.turquoise, Color(0xFF1B998B)],
             onPressed: submitting ? null : onApprove,

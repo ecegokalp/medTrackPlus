@@ -32,10 +32,14 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
 
   late TabController _tabController;
 
+  /// Device-free hasta profillerinde fiziksel dispense yok →
+  /// yalnızca doğrulama sekmesi gösterilir.
+  bool get _isPatient => widget.macAddress.startsWith('patient_');
+
   @override
   void initState() {
     super.initState();
-    _tabController = TabController(length: 2, vsync: this);
+    _tabController = TabController(length: _isPatient ? 1 : 2, vsync: this);
     _loadData();
   }
 
@@ -54,14 +58,22 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
       uidToUse = user!.uid;
     }
 
-    final dispenseData = await _db.getDispenseStats(widget.macAddress, uidToUse);
+    // Hastalarda dispense sekmesi yok → sorguyu atla.
+    final dispenseData = _isPatient
+        ? <String, dynamic>{}
+        : await _db.getDispenseStats(widget.macAddress, uidToUse);
     final verificationData = await _db.getVerificationStats(widget.macAddress);
 
     Map<int, String> pillMap = {};
     try {
-      var doc = await FirebaseFirestore.instance.collection('dispenser').doc(widget.macAddress).get();
-      if (doc.exists && doc.data()!.containsKey('section_config')) {
-        List<dynamic> sections = doc.data()!['section_config'];
+      // Entity-aware: cihazlar 'dispenser/section_config',
+      // device-free hastalar 'patients/medications'.
+      final isPatient = widget.macAddress.startsWith('patient_');
+      final collection = isPatient ? 'patients' : 'dispenser';
+      final medsField = isPatient ? 'medications' : 'section_config';
+      var doc = await FirebaseFirestore.instance.collection(collection).doc(widget.macAddress).get();
+      if (doc.exists && doc.data()!.containsKey(medsField)) {
+        List<dynamic> sections = doc.data()![medsField];
         for (int i = 0; i < sections.length; i++) {
           pillMap[i] = sections[i]['name'] ?? "unknown_pill".tr();
         }
@@ -100,7 +112,7 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
           unselectedLabelColor: Colors.grey,
           indicatorColor: AppColors.turquoise,
           tabs: [
-            Tab(text: "dispense_tab".tr()),
+            if (!_isPatient) Tab(text: "dispense_tab".tr()),
             Tab(text: "verification_tab".tr()),
           ],
         ),
@@ -110,7 +122,7 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
           : TabBarView(
               controller: _tabController,
               children: [
-                _buildDispenseTab(),
+                if (!_isPatient) _buildDispenseTab(),
                 _buildVerificationTab(),
               ],
             ),
@@ -188,11 +200,11 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
           // Summary Cards
           Row(
             children: [
-              _buildVerificationCard('Verified', success, Colors.green, Icons.check_circle_rounded),
+              _buildVerificationCard('verified_label'.tr(), success, Colors.green, Icons.check_circle_rounded),
               const SizedBox(width: 10),
-              _buildVerificationCard('Suspicious', suspicious, Colors.orange, Icons.warning_amber_rounded),
+              _buildVerificationCard('suspicious_label'.tr(), suspicious, Colors.orange, Icons.warning_amber_rounded),
               const SizedBox(width: 10),
-              _buildVerificationCard('Rejected', rejected, Colors.redAccent, Icons.cancel_rounded),
+              _buildVerificationCard('rejected_label'.tr(), rejected, Colors.redAccent, Icons.cancel_rounded),
             ],
           ),
           const SizedBox(height: 20),
@@ -202,13 +214,13 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
           const SizedBox(height: 24),
 
           // Verification Success Rate Bar Chart
-          const Text('Verification Rate', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.deepSea)),
+          Text('verification_rate'.tr(), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.deepSea)),
           const SizedBox(height: 16),
           _buildVerificationRateChart(success, suspicious, rejected, total),
           const SizedBox(height: 24),
 
           // Section Details
-          const Text('Section Breakdown', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.deepSea)),
+          Text('section_breakdown'.tr(), style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: AppColors.deepSea)),
           const SizedBox(height: 12),
           _buildVerificationSectionDetails(),
           const SizedBox(height: 30),
@@ -282,10 +294,10 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text('Average Accuracy', style: TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.deepSea)),
+                Text('average_accuracy'.tr(), style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 15, color: AppColors.deepSea)),
                 const SizedBox(height: 4),
                 Text(
-                  avgScore >= 0.7 ? 'Good performance' : avgScore >= 0.4 ? 'Needs attention' : 'Critical - review required',
+                  avgScore >= 0.7 ? 'accuracy_good'.tr() : avgScore >= 0.4 ? 'accuracy_attention'.tr() : 'accuracy_critical'.tr(),
                   style: TextStyle(fontSize: 13, color: color, fontWeight: FontWeight.w500),
                 ),
               ],
@@ -308,11 +320,11 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
       ),
       child: Column(
         children: [
-          _rateBar('Success', success, total, Colors.green),
+          _rateBar('success_title'.tr(), success, total, Colors.green),
           const SizedBox(height: 14),
-          _rateBar('Suspicious', suspicious, total, Colors.orange),
+          _rateBar('suspicious_label'.tr(), suspicious, total, Colors.orange),
           const SizedBox(height: 14),
-          _rateBar('Rejected', rejected, total, Colors.redAccent),
+          _rateBar('rejected_label'.tr(), rejected, total, Colors.redAccent),
         ],
       ),
     );

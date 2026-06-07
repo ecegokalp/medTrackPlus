@@ -6,6 +6,7 @@ import 'package:flutter_quick_video_encoder/flutter_quick_video_encoder.dart';
 import 'package:path_provider/path_provider.dart';
 
 import 'package:camera/camera.dart';
+import 'package:easy_localization/easy_localization.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
@@ -304,8 +305,8 @@ class _VerificationScreenState extends State<VerificationScreen> {
               !_finalizing) {
             _detectionSucceeded = true;
             if (mounted) {
-              setState(() =>
-                  _statusMessage = 'Yutma onaylandı — kayıt sonlanıyor...');
+              setState(() => _statusMessage =
+                  'verif_swallow_confirmed_finishing'.tr());
             }
             _onTimeout();
           }
@@ -625,8 +626,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
         _recording = true;
         _encoderActive = true;
         _recordingStartedAt = DateTime.now();
-        _statusMessage =
-            'Kayıt başladı — detection paralel çalışıyor, hapı yutun ve su için';
+        _statusMessage = 'verif_recording_started'.tr();
       });
       _recordingTimeoutTimer?.cancel();
       _recordingTimeoutTimer = Timer(_recordingMaxDuration, _onTimeout);
@@ -637,10 +637,12 @@ class _VerificationScreenState extends State<VerificationScreen> {
         setState(() {
           _recording = false;
           _encoderActive = false;
-          _statusMessage = 'KAYIT BAŞLATILAMADI: $e';
+          _statusMessage =
+              'verif_recording_start_failed_status'.tr(args: [e.toString()]);
         });
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text('Kayıt başlatılamadı: $e'),
+          content: Text(
+              'verif_recording_start_failed'.tr(args: [e.toString()])),
           backgroundColor: Colors.redAccent,
           duration: const Duration(seconds: 6),
         ));
@@ -712,14 +714,16 @@ class _VerificationScreenState extends State<VerificationScreen> {
       // Recording still in progress — let the timer drive the finalize step.
       if (mounted) {
         setState(() => _statusMessage =
-            'Yutma onaylandı — kayıt 30sn boyunca devam ediyor...');
+            'verif_swallow_confirmed_recording_continues'.tr());
       }
       return;
     }
     // Not recording (e.g. consent disabled, or _onTimeout already stopped it).
     _finalizing = true;
     _completed = true;
-    if (mounted) setState(() => _statusMessage = 'Yutma onaylandı.');
+    if (mounted) {
+      setState(() => _statusMessage = 'verif_swallow_confirmed'.tr());
+    }
     await _saveAndUpload(
       localPath: _recordedLocalPath,
       userConfirmed: true,
@@ -743,10 +747,10 @@ class _VerificationScreenState extends State<VerificationScreen> {
       // window closes; it stays up through compress + upload + Firestore
       // write, until the centered completion dialog takes over.
       setState(() {
-        _statusMessage = 'Kayıt tamamlandı — sonuç hazırlanıyor...';
+        _statusMessage = 'verif_recording_done_preparing'.tr();
         _uploading = true;
         _uploadProgress = 0.0;
-        _uploadStatus = 'Kayıt sonlandırılıyor...';
+        _uploadStatus = 'verif_finalizing_recording'.tr();
       });
     }
     await _stopRecording();
@@ -794,7 +798,10 @@ class _VerificationScreenState extends State<VerificationScreen> {
 
     // Path C: ask the user to confirm manually.
     if (!mounted) return;
-    if (mounted) setState(() => _statusMessage = 'Otomatik doğrulanamadı.');
+    if (mounted) {
+      setState(
+          () => _statusMessage = 'verif_auto_verification_failed'.tr());
+    }
     final tookIt = await _showTimeoutDialog();
     if (!mounted) return;
     if (tookIt == true) {
@@ -829,16 +836,16 @@ class _VerificationScreenState extends State<VerificationScreen> {
     final String message;
     switch (_completionClassification) {
       case 'success':
-        message = 'Doğrulama başarılı (%$scorePct).';
+        message = 'verif_result_success_pct'.tr(args: [scorePct.toString()]);
         break;
       case 'suspicious':
         message =
-            'Doğrulama şüpheli (%$scorePct) — yakınınızın incelemesi bekleniyor.';
+            'verif_result_suspicious_pct'.tr(args: [scorePct.toString()]);
         break;
       case 'rejected':
       default:
         message =
-            'Doğrulama yetersiz (%$scorePct). Lütfen tekrar deneyin.';
+            'verif_result_rejected_pct'.tr(args: [scorePct.toString()]);
         break;
     }
     setState(() => _statusMessage = message);
@@ -851,20 +858,17 @@ class _VerificationScreenState extends State<VerificationScreen> {
       builder: (ctx) => AlertDialog(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Row(
-          children: const [
-            Icon(Icons.timer_off_rounded, color: Colors.orange),
-            SizedBox(width: 8),
-            Text('Süre Doldu'),
+          children: [
+            const Icon(Icons.timer_off_rounded, color: Colors.orange),
+            const SizedBox(width: 8),
+            Text('verif_time_expired'.tr()),
           ],
         ),
-        content: const Text(
-          '30 saniye içinde yutma tespit edilemedi. '
-          'İlacı aldığınızı onaylıyor musunuz?',
-        ),
+        content: Text('verif_timeout_dialog_body'.tr()),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: const Text('Hayır, içemedim'),
+            child: Text('verif_no_didnt_take'.tr()),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
@@ -872,7 +876,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
               foregroundColor: Colors.white,
             ),
             onPressed: () => Navigator.pop(ctx, true),
-            child: const Text('Evet, içtim'),
+            child: Text('verif_yes_took_it'.tr()),
           ),
         ],
       ),
@@ -895,7 +899,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
     _service.reset();
     if (mounted) {
       setState(() {
-        _statusMessage = 'Tekrar deneyin.';
+        _statusMessage = 'verif_try_again'.tr();
         _uploading = false;
         _uploadProgress = 0.0;
         _uploadStatus = '';
@@ -930,7 +934,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
       setState(() {
         _uploading = true;
         _uploadProgress = 0.0;
-        _uploadStatus = 'Video sıkıştırılıyor (720p)...';
+        _uploadStatus = 'verif_compressing_video'.tr();
       });
     }
     try {
@@ -994,19 +998,22 @@ class _VerificationScreenState extends State<VerificationScreen> {
         debugPrint(
             '[VerificationScreen] upload SKIPPED: bad local file '
             '(exists=$localExists, size=$localSize, frames=$_encodedFrameCount)');
-        uploadError =
-            'Kayıt boş ($_encodedFrameCount frame). Encoder frame alamadı.';
+        uploadError = 'verif_empty_recording'
+            .tr(args: [_encodedFrameCount.toString()]);
       } else {
         final pathToUpload = await _compressVideo(nonNullPath);
-        if (mounted) setState(() => _uploadStatus = 'Sunucuya yükleniyor...');
+        if (mounted) {
+          setState(
+              () => _uploadStatus = 'verif_uploading_to_server'.tr());
+        }
 
         // Retry upload up to 3 times with exponential backoff.
         const int maxAttempts = 3;
         for (int attempt = 1; attempt <= maxAttempts; attempt++) {
           try {
             if (mounted && attempt > 1) {
-              setState(() => _uploadStatus =
-                  'Yükleme yeniden deneniyor ($attempt/$maxAttempts)...');
+              setState(() => _uploadStatus = 'verif_upload_retrying'
+                  .tr(args: [attempt.toString(), maxAttempts.toString()]));
             }
             final upload = await _cloudService.uploadFootage(
               deviceId: _deviceId,
@@ -1032,15 +1039,15 @@ class _VerificationScreenState extends State<VerificationScreen> {
               final delay = Duration(seconds: 2 * attempt);
               debugPrint('[VerificationScreen] Retrying in ${delay.inSeconds}s...');
               if (mounted) {
-                setState(() => _uploadStatus =
-                    '${delay.inSeconds}s sonra tekrar denenecek...');
+                setState(() => _uploadStatus = 'verif_retry_in_seconds'
+                    .tr(args: [delay.inSeconds.toString()]));
               }
               await Future.delayed(delay);
             } else {
               debugPrint(
                   '[VerificationScreen] All $maxAttempts upload attempts exhausted.');
               if (mounted) {
-                setState(() => _uploadStatus = 'Yükleme başarısız.');
+                setState(() => _uploadStatus = 'verif_upload_failed'.tr());
               }
             }
           }
@@ -1053,7 +1060,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
       }
     }
     if (mounted && _consentEnabled && localPath != null) {
-      setState(() => _uploadStatus = 'Doğrulama kaydı yazılıyor...');
+      setState(() => _uploadStatus = 'verif_saving_record'.tr());
     }
     final userId = FirebaseAuth.instance.currentUser?.uid;
     if (userId != null) {
@@ -1105,6 +1112,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
       final hasMac = widget.macAddress != null && widget.macAddress!.isNotEmpty;
 
       if (hasMac) {
+        final isPatient = DatabaseService.isPatientId(widget.macAddress!);
         try {
           await _cloudService.saveForDevice(
             macAddress: widget.macAddress!,
@@ -1116,6 +1124,10 @@ class _VerificationScreenState extends State<VerificationScreen> {
               'detectionConfirmed': detectionConfirmed,
               'userConfirmed': userConfirmed,
               'highestPhase': _highestPhaseReached.name,
+              // Cloud Functions (FCM bildirimleri) bu alanları okur:
+              'userId': userId,
+              'section': widget.sectionIndex,
+              'hasDevice': !isPatient,
             },
           );
         } catch (_) {}
@@ -1178,22 +1190,22 @@ class _VerificationScreenState extends State<VerificationScreen> {
       case 'success':
         color = AppColors.turquoise;
         icon = Icons.verified_rounded;
-        title = 'Doğrulama Başarılı';
+        title = 'verif_dialog_success'.tr();
         break;
       case 'suspicious':
         color = Colors.orange;
         icon = Icons.help_outline_rounded;
-        title = 'Şüpheli Doğrulama';
+        title = 'verif_dialog_suspicious'.tr();
         break;
       case 'rejected':
         color = Colors.redAccent;
         icon = Icons.cancel_rounded;
-        title = 'Doğrulama Başarısız';
+        title = 'verif_dialog_rejected'.tr();
         break;
       default:
         color = AppColors.skyBlue;
         icon = Icons.info_outline_rounded;
-        title = 'Doğrulama Tamamlandı';
+        title = 'verif_dialog_completed'.tr();
     }
 
     final uploadOk = _completionFootageUrl != null &&
@@ -1235,7 +1247,8 @@ class _VerificationScreenState extends State<VerificationScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                'Doğruluk: ${(_completionScore * 100).toStringAsFixed(0)}%',
+                'verif_accuracy_pct'.tr(
+                    args: [(_completionScore * 100).toStringAsFixed(0)]),
                 style: GoogleFonts.inter(
                   fontSize: 14,
                   fontWeight: FontWeight.w700,
@@ -1246,27 +1259,29 @@ class _VerificationScreenState extends State<VerificationScreen> {
               if (consentSkipped)
                 _completionInfoRow(
                   Icons.privacy_tip_rounded,
-                  'Video kaydı alınmadı (KVKK onayı kapalı).',
+                  'verif_no_video_consent_off'.tr(),
                   Colors.amber.shade800,
                 )
               else if (uploadOk)
                 _completionInfoRow(
                   Icons.cloud_done_rounded,
-                  'Video sunucuya yüklendi. Yakınlarınız Yakın İncelemesi\'nden açabilir.',
+                  'verif_video_uploaded_info'.tr(),
                   AppColors.turquoise,
                 )
               else if (_completionUploadError != null)
                 _completionInfoRow(
                   Icons.cloud_off_rounded,
-                  'Video YÜKLENEMEDİ: $_completionUploadError',
+                  'verif_video_upload_failed'
+                      .tr(args: [_completionUploadError ?? '']),
                   Colors.redAccent,
                 )
               else
                 _completionInfoRow(
                   Icons.info_outline_rounded,
                   _completionClassification == 'suspicious'
-                      ? 'Video yüklenemedi.'
-                      : 'Video kaydı gerekmedi (sonuç: $_completionClassification).',
+                      ? 'verif_video_not_uploaded'.tr()
+                      : 'verif_video_not_needed'
+                          .tr(args: [_completionClassification]),
                   Colors.grey.shade600,
                 ),
               if (_completionStoragePath != null) ...[
@@ -1305,7 +1320,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
                         borderRadius: BorderRadius.circular(12)),
                   ),
                   child: Text(
-                    'Tamam',
+                    'ok_btn'.tr(),
                     style: GoogleFonts.inter(
                         fontWeight: FontWeight.w800, fontSize: 15),
                   ),
@@ -1466,25 +1481,25 @@ class _VerificationScreenState extends State<VerificationScreen> {
   String _phaseLabel(DetectionPhase phase) {
     switch (phase) {
       case DetectionPhase.noFace:
-        return 'Yüz Bulunamadı';
+        return 'verif_phase_no_face'.tr();
       case DetectionPhase.faceDetected:
-        return 'Yüz Algılandı';
+        return 'verif_phase_face_detected'.tr();
       case DetectionPhase.mouthOpen:
-        return 'Ağız Açık';
+        return 'verif_phase_mouth_open'.tr();
       case DetectionPhase.pillOnTongue:
-        return 'Hap Dilde';
+        return 'verif_phase_pill_on_tongue'.tr();
       case DetectionPhase.mouthClosedWithPill:
-        return 'Ağız Kapandı';
+        return 'verif_phase_mouth_closed'.tr();
       case DetectionPhase.drinking:
-        return 'Su İçiliyor';
+        return 'verif_phase_drinking'.tr();
       case DetectionPhase.mouthReopened:
-        return 'Ağız Yeniden Açıldı';
+        return 'verif_phase_mouth_reopened'.tr();
       case DetectionPhase.swallowConfirmed:
-        return 'Yutma Onaylandı';
+        return 'verif_phase_swallow_confirmed'.tr();
       case DetectionPhase.swallowFailed:
-        return 'Yutma Başarısız';
+        return 'verif_phase_swallow_failed'.tr();
       case DetectionPhase.timeoutExpired:
-        return 'Süre Doldu';
+        return 'verif_time_expired'.tr();
     }
   }
 
@@ -1546,7 +1561,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
       child: Scaffold(
         backgroundColor: AppColors.background,
         appBar: AppBar(
-          title: Text('İlaç Doğrulama',
+          title: Text('verif_screen_title'.tr(),
               style: GoogleFonts.inter(
                   fontWeight: FontWeight.w800, color: AppColors.deepSea)),
           centerTitle: true,
@@ -1629,19 +1644,19 @@ class _VerificationScreenState extends State<VerificationScreen> {
                           icon: _phaseIcon(phase),
                           title: _statusMessage ?? _phaseLabel(phase),
                           subtitle: _recording
-                              ? 'Kayıt sürüyor — lütfen ilacınızı alıp yutun'
-                                  '${_pillToLipSamples > 0 ? " (mesafe: ${_avgPillToLipDistance.toStringAsFixed(2)})" : ""}'
+                              ? '${'verif_recording_in_progress'.tr()}'
+                                  '${_pillToLipSamples > 0 ? 'verif_distance_suffix'.tr(args: [_avgPillToLipDistance.toStringAsFixed(2)]) : ""}'
                               : _lastResult.guidance,
                         ),
                         const SizedBox(height: 8),
                         _StepTracker(
-                          steps: const [
-                            'Yüz',
-                            'Ağız',
-                            'Hap',
-                            'Kapat',
-                            'Su',
-                            'Yut'
+                          steps: [
+                            'verif_step_face'.tr(),
+                            'verif_step_mouth'.tr(),
+                            'verif_step_pill'.tr(),
+                            'verif_step_close'.tr(),
+                            'verif_step_water'.tr(),
+                            'verif_step_swallow'.tr(),
                           ],
                           stepReached: (i) => _stepReached(phase, i),
                           phase: phase,
@@ -1662,7 +1677,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
                 status: _uploadStatus.isNotEmpty
                     ? _uploadStatus
                     : (_statusMessage ??
-                        'Kayıt tamamlanıyor — lütfen bekleyin...'),
+                        'verif_finishing_recording_wait'.tr()),
               ),
           ],
         ),
@@ -1798,7 +1813,7 @@ class _CameraCard extends StatelessWidget {
                       Icon(phaseIcon, color: Colors.white, size: 16),
                       const SizedBox(width: 6),
                       Text(
-                        recording ? 'KAYIT' : phaseLabel,
+                        recording ? 'verif_rec_badge'.tr() : phaseLabel,
                         style: GoogleFonts.inter(
                           color: Colors.white,
                           fontWeight: FontWeight.w700,
@@ -1827,7 +1842,7 @@ class _CameraCard extends StatelessWidget {
                         const SizedBox(width: 6),
                         Expanded(
                           child: Text(
-                            'KVKK onayı yok — kayıt yapılmıyor.',
+                            'verif_no_consent_no_recording'.tr(),
                             style: GoogleFonts.inter(
                               fontSize: 11,
                               fontWeight: FontWeight.w600,
@@ -1919,7 +1934,7 @@ class _RecordingDimOverlayState extends State<_RecordingDimOverlay>
                         color: Colors.redAccent, size: 18),
                     const SizedBox(width: 8),
                     Text(
-                      'KAYIT SÜRÜYOR',
+                      'verif_recording_active_badge'.tr(),
                       style: GoogleFonts.inter(
                         color: Colors.white,
                         fontSize: 13,
@@ -2168,7 +2183,7 @@ class _CompleteButton extends StatelessWidget {
                     color: Colors.white, size: 18),
                 const SizedBox(width: 8),
                 Text(
-                  'Tamamla',
+                  'verif_complete_btn'.tr(),
                   style: GoogleFonts.inter(
                     fontSize: 14,
                     fontWeight: FontWeight.w700,
@@ -2232,7 +2247,7 @@ class _RecPillState extends State<_RecPill>
           ),
           const SizedBox(width: 5),
           Text(
-            'REC ${elapsed}s/30s',
+            'verif_rec_timer'.tr(args: [elapsed.toString()]),
             style: GoogleFonts.inter(
               color: Colors.white,
               fontWeight: FontWeight.w700,
@@ -2306,7 +2321,7 @@ class _UploadOverlay extends StatelessWidget {
                 ),
                 const SizedBox(height: 18),
                 Text(
-                  'Video İşleniyor',
+                  'verif_processing_video'.tr(),
                   style: GoogleFonts.inter(
                     fontSize: 17,
                     fontWeight: FontWeight.w800,
@@ -2315,7 +2330,7 @@ class _UploadOverlay extends StatelessWidget {
                 ),
                 const SizedBox(height: 6),
                 Text(
-                  status.isEmpty ? 'Lütfen bekleyin...' : status,
+                  status.isEmpty ? 'please_wait'.tr() : status,
                   textAlign: TextAlign.center,
                   style: GoogleFonts.inter(
                     fontSize: 13,

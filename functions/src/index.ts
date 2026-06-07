@@ -26,18 +26,19 @@ const messaging = admin.messaging();
  *   suspicious → Send review FCM notification to all relatives
  *   success    → Log only
  */
-export const onVerificationCreated = functions
-  .region("europe-west1")
-  .firestore.document("dispenser/{macAddress}/verifications/{verificationId}")
-  .onCreate(async (snap, context) => {
+async function handleVerificationCreated(
+  snap: functions.firestore.QueryDocumentSnapshot,
+  entityCollection: "dispenser" | "patients",
+  entityId: string,
+  verificationId: string
+): Promise<null> {
     const data = snap.data();
-    const {macAddress} = context.params;
     const classification: string = data.classification;
     const section: number = data.section ?? 0;
-    const hasDevice: boolean = data.hasDevice ?? true;
+    const hasDevice: boolean = data.hasDevice ?? (entityCollection === "dispenser");
 
     functions.logger.info(
-      `Verification created: mac=${macAddress}, classification=${classification}, hasDevice=${hasDevice}`
+      `Verification created: ${entityCollection}/${entityId}, classification=${classification}, hasDevice=${hasDevice}`
     );
 
     // --- SUCCESS: log only ---
@@ -48,18 +49,22 @@ export const onVerificationCreated = functions
 
     // --- REJECTED or SUSPICIOUS: send FCM to relatives ---
     try {
-      // 1. Get dispenser document to find all related users
-      const dispenserDoc = await db.collection("dispenser").doc(macAddress).get();
-      if (!dispenserDoc.exists) {
-        functions.logger.warn(`Dispenser ${macAddress} not found.`);
+      // 1. Get entity document to find all related users
+      const entityDoc = await db.collection(entityCollection).doc(entityId).get();
+      if (!entityDoc.exists) {
+        functions.logger.warn(`${entityCollection}/${entityId} not found.`);
         return null;
       }
 
-      const dispenserData = dispenserDoc.data()!;
-      const deviceName: string = dispenserData.device_name ?? macAddress;
+      const dispenserData = entityDoc.data()!;
+      const deviceName: string = entityCollection === "patients"
+        ? dispenserData.patient_name ?? entityId
+        : dispenserData.device_name ?? entityId;
 
-      // Get medicine name from section_config
-      const sectionConfig: Array<{name?: string}> = dispenserData.section_config ?? [];
+      // Get medicine name from section_config (device) or medications (patient)
+      const sectionConfig: Array<{name?: string}> = entityCollection === "patients"
+        ? dispenserData.medications ?? []
+        : dispenserData.section_config ?? [];
       const medicineName: string =
         section < sectionConfig.length && sectionConfig[section]?.name
           ? sectionConfig[section].name!
@@ -116,8 +121,8 @@ export const onVerificationCreated = functions
         data: {
           type: "verification",
           classification,
-          macAddress,
-          verificationId: context.params.verificationId,
+          macAddress: entityId,
+          verificationId,
           section: section.toString(),
           hasDevice: hasDevice.toString(),
         },
@@ -148,18 +153,31 @@ export const onVerificationCreated = functions
       functions.logger.error("Error in onVerificationCreated:", error);
       return null;
     }
-  });
+}
 
-/**
- * Firestore onUpdate trigger for verification documents.
- *
- * When review_decision changes to "approved" or "denied",
- * send FCM notification to the patient (userId).
- */
-export const onReviewDecisionUpdate = functions
+export const onVerificationCreated = functions
   .region("europe-west1")
   .firestore.document("dispenser/{macAddress}/verifications/{verificationId}")
-  .onUpdate(async (change, context) => {
+  .onCreate((snap, context) => handleVerificationCreated(
+    snap, "dispenser", context.params.macAddress, context.params.verificationId
+  ));
+
+export const onPatientVerificationCreated = functions
+  .region("europe-west1")
+  .firestore.document("patients/{patientId}/verifications/{verificationId}")
+  .onCreate((snap, context) => handleVerificationCreated(
+    snap, "patients", context.params.patientId, context.params.verificationId
+  ));
+
+/**
+ * Shared handler: when review_decision changes to "approved" or "denied",
+ * send FCM notification to the patient (userId).
+ */
+async function handleReviewDecisionUpdate(
+  change: functions.Change<functions.firestore.QueryDocumentSnapshot>,
+  entityCollection: "dispenser" | "patients",
+  entityId: string
+): Promise<null> {
     const before = change.before.data();
     const after = change.after.data();
 
@@ -170,11 +188,10 @@ export const onReviewDecisionUpdate = functions
     if (oldDecision === newDecision) return null;
     if (newDecision !== "approved" && newDecision !== "denied") return null;
 
-    const {macAddress} = context.params;
     const userId: string = after.userId;
 
     functions.logger.info(
-      `Review decision updated: mac=${macAddress}, decision=${newDecision}, patient=${userId}`
+      `Review decision updated: ${entityCollection}/${entityId}, decision=${newDecision}, patient=${userId}`
     );
 
     try {
@@ -193,11 +210,13 @@ export const onReviewDecisionUpdate = functions
         return null;
       }
 
-      // 2. Get device name
-      const dispenserDoc = await db.collection("dispenser").doc(macAddress).get();
-      const deviceName: string = dispenserDoc.exists
-        ? dispenserDoc.data()!.device_name ?? macAddress
-        : macAddress;
+      // 2. Get entity display name
+      const entityDoc = await db.collection(entityCollection).doc(entityId).get();
+      const deviceName: string = entityDoc.exists
+        ? (entityCollection === "patients"
+            ? entityDoc.data()!.patient_name ?? entityId
+            : entityDoc.data()!.device_name ?? entityId)
+        : entityId;
 
       // 3. Build notification
       const title = newDecision === "approved"
@@ -214,7 +233,7 @@ export const onReviewDecisionUpdate = functions
         data: {
           type: "review_decision",
           decision: newDecision,
-          macAddress,
+          macAddress: entityId,
         },
         android: {
           priority: "high",
@@ -240,7 +259,21 @@ export const onReviewDecisionUpdate = functions
       functions.logger.error("Error in onReviewDecisionUpdate:", error);
       return null;
     }
-  });
+}
+
+export const onReviewDecisionUpdate = functions
+  .region("europe-west1")
+  .firestore.document("dispenser/{macAddress}/verifications/{verificationId}")
+  .onUpdate((change, context) => handleReviewDecisionUpdate(
+    change, "dispenser", context.params.macAddress
+  ));
+
+export const onPatientReviewDecisionUpdate = functions
+  .region("europe-west1")
+  .firestore.document("patients/{patientId}/verifications/{verificationId}")
+  .onUpdate((change, context) => handleReviewDecisionUpdate(
+    change, "patients", context.params.patientId
+  ));
 
 /**
  * Build notification title and body based on classification and device path.

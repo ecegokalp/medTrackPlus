@@ -52,6 +52,9 @@ dependencies:
 
   # Date/time formatting (relative review screen)
   intl: ^0.20.2
+
+  # Patient avatar selection (device-free patient profiles)
+  image_picker: ^1.1.2
 dev_dependencies:
   flutter_test:
     sdk: flutter
