@@ -60,6 +60,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
   int _mouthOpenFrames = 0;
   int _pillOnTongueFrames = 0;
   DetectionPhase _highestPhaseReached = DetectionPhase.noFace;
+  bool _drinkReached = false;
 
   final List<CVFrameData> _cvFrames = [];
   double _avgPillToLipDistance = 0.0;
@@ -220,6 +221,10 @@ class _VerificationScreenState extends State<VerificationScreen> {
             'pillToLip=${result.pillToLipDistance?.toStringAsFixed(3) ?? "n/a"}, '
             'mouthRatio=${result.mouthOpenRatio.toStringAsFixed(3)})');
         _highestPhaseReached = result.phase;
+      }
+      if (result.phase == DetectionPhase.drinking ||
+          result.phase == DetectionPhase.mouthReopened) {
+        _drinkReached = true;
       }
 
       final cvFrame = CVFrameData.fromPillResult(result);
@@ -836,6 +841,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
     _mouthOpenFrames = 0;
     _pillOnTongueFrames = 0;
     _highestPhaseReached = DetectionPhase.noFace;
+    _drinkReached = false;
     _detectionSucceeded = false;
     _completed = false;
     _finalizing = false;
@@ -923,7 +929,10 @@ class _VerificationScreenState extends State<VerificationScreen> {
     required bool detectionConfirmed,
   }) async {
     final score = _computeScore(detectionConfirmed: detectionConfirmed);
-    final classification = _scoringEngine.classify(score);
+    final classification = _scoringEngine.classifyWithDetection(
+      pillValidated: _pillOnTongueFrames > 0,
+      swallowConfirmed: _detectionSucceeded,
+    );
     String footageUrl = '';
     String? storagePath;
     String? uploadError;
@@ -1010,7 +1019,10 @@ class _VerificationScreenState extends State<VerificationScreen> {
           : 0.2;
       final Map<String, double> subScores;
       if (_cvFrames.isNotEmpty) {
-        final cvSub = _scoringEngine.calculateSubScores(_cvFrames);
+        final cvSub = _scoringEngine.calculateSubScores(
+          _cvFrames,
+          pillValidated: _pillOnTongueFrames > 0,
+        );
         subScores = {
           ...cvSub,
           'presence': _devicePresent ? 1.0 : 0.0,
@@ -1302,42 +1314,51 @@ class _VerificationScreenState extends State<VerificationScreen> {
             widget.scheduledAlarmTime, DateTime.now())
         : 0.2;
 
-    if (_cvFrames.isNotEmpty) {
-      final subScores = _scoringEngine.calculateSubScores(_cvFrames);
-      // CV pill score stays as-is — no artificial boost from user confirmation.
-      // detectionConfirmed only gives a small timing bonus (already handled above).
-      final pillScore = subScores['pill'] ?? 0.0;
+    final pillValidated = _pillOnTongueFrames > 0;
 
-      return _scoringEngine.calculate(
+    double score;
+    if (_cvFrames.isNotEmpty) {
+      final subScores = _scoringEngine.calculateSubScores(
+        _cvFrames,
+        pillValidated: pillValidated,
+      );
+      score = _scoringEngine.calculate(
         mode: mode,
         presence: presenceScore,
-        pill: pillScore,
+        pill: subScores['pill'] ?? 0.0,
         lip: subScores['lip'] ?? 0.0,
         mouth: subScores['mouth'] ?? 0.0,
         pillToLip: subScores['pillToLip'] ?? 0.0,
         timing: timingScore,
       );
+    } else {
+      final lipRatio = (_facePresentFrames / _frameCount).clamp(0.0, 1.0);
+      final mouthRatio = _facePresentFrames > 0
+          ? (_mouthOpenFrames / _facePresentFrames).clamp(0.0, 1.0)
+          : 0.0;
+      final rawPillRatio = _facePresentFrames > 0
+          ? (_pillOnTongueFrames / _facePresentFrames).clamp(0.0, 1.0)
+          : 0.0;
+      final pillToLipScore = _pillToLipSamples > 0
+          ? _scoringEngine.scorePillToLipDistance(_avgPillToLipDistance)
+          : 0.0;
+
+      score = _scoringEngine.calculate(
+        mode: mode,
+        presence: presenceScore,
+        pill: rawPillRatio,
+        lip: lipRatio,
+        mouth: mouthRatio,
+        pillToLip: pillToLipScore,
+        timing: timingScore,
+      );
     }
 
-    final lipRatio = (_facePresentFrames / _frameCount).clamp(0.0, 1.0);
-    final mouthRatio = _facePresentFrames > 0
-        ? (_mouthOpenFrames / _facePresentFrames).clamp(0.0, 1.0)
-        : 0.0;
-    final rawPillRatio = _facePresentFrames > 0
-        ? (_pillOnTongueFrames / _facePresentFrames).clamp(0.0, 1.0)
-        : 0.0;
-    final pillToLipScore = _pillToLipSamples > 0
-        ? _scoringEngine.scorePillToLipDistance(_avgPillToLipDistance)
-        : 0.0;
-
-    return _scoringEngine.calculate(
-      mode: mode,
-      presence: presenceScore,
-      pill: rawPillRatio,
-      lip: lipRatio,
-      mouth: mouthRatio,
-      pillToLip: pillToLipScore,
-      timing: timingScore,
+    return _scoringEngine.anchorToDetection(
+      score,
+      pillValidated: pillValidated,
+      drinkReached: _drinkReached,
+      swallowConfirmed: _detectionSucceeded,
     );
   }
 
@@ -1520,6 +1541,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
                         _mouthOpenFrames = 0;
                         _pillOnTongueFrames = 0;
                         _highestPhaseReached = DetectionPhase.noFace;
+                        _drinkReached = false;
                       });
                     },
             ),
