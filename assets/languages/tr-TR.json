@@ -406,5 +406,6 @@
   "kvkk_checkbox_accept": "Yukarıdaki metnin tamamını okudum ve kabul ediyorum.",
   "kvkk_scroll_hint": "Devam etmek için lütfen metni sonuna kadar kaydırın.",
   "kvkk_reject_btn": "Reddet",
-  "kvkk_accept_btn": "Kabul Ediyorum"
+  "kvkk_accept_btn": "Kabul Ediyorum",
+  "snooze_button": "5 dk Ertele"
 }

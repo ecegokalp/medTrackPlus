@@ -243,14 +243,20 @@ class NotificationService {
   }
 
   // --- Planlama Motoru ---
-  Future<void> scheduleMedicationNotifications(BuildContext context, List<Map<String, dynamic>> sections, String macAddress) async {
+  /// [clearExisting]: true (varsayılan) → önce TÜM alarmları temizler.
+  /// AlarmCoordinator birden fazla entity'yi (cihaz + hasta) arka arkaya
+  /// planlarken yalnızca ilk çağrıda true geçer; böylece bir entity'nin
+  /// planı diğerininkini silmez.
+  Future<void> scheduleMedicationNotifications(BuildContext context, List<Map<String, dynamic>> sections, String macAddress, {bool clearExisting = true}) async {
     final settings = await getNotificationSettings();
     final bool alarmsOn = settings['alarms_enabled'];
     final bool notesOn = settings['notifications_enabled'];
     final int offsetMinutes = settings['offset'];
 
-    await Alarm.stopAll();
-    await AwesomeNotifications().cancelAllSchedules();
+    if (clearExisting) {
+      await Alarm.stopAll();
+      await AwesomeNotifications().cancelAllSchedules();
+    }
     await checkStockAndNotify(sections, macAddress);
 
     if (!alarmsOn && !notesOn) return;
@@ -258,7 +264,10 @@ class NotificationService {
     String currentLang = context.locale.languageCode;
     String soundPath = (currentLang == 'tr') ? 'assets/alarms/alarm_tr.mp3' : 'assets/alarms/alarm_en.mp3';
 
-    int idCounter = 1000;
+    // Entity'ye özgü ID aralığı: çoklu hasta/cihaz planlamasında ID çakışması
+    // olmasın diye taban, entity ID'sinin hash'inden türetilir
+    // (entity başına 100'lük blok; 1000–701000 aralığı).
+    int idCounter = 1000 + (macAddress.hashCode.abs() % 7000) * 100;
 
     // --- 1. ADIM: İlaçları Zamana Göre Grupla ---
     Map<String, List<Map<String, dynamic>>> groupedAlarms = {};

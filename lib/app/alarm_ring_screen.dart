@@ -74,85 +74,103 @@ class _AlarmRingScreenState extends State<AlarmRingScreen> {
     super.dispose();
   }
 
+  /// ALARMI DURDUR: alarmı kapat, overlay'i kaldır ve doğrulama akışını
+  /// GLOBAL navigator üzerinden başlat.
+  ///
+  /// ÖNEMLİ: Bu ekran MaterialApp.builder'da Navigator'ın ÜSTÜNDE bir
+  /// overlay olarak çizilir. Bu yüzden (1) `Navigator.of(context)` burada
+  /// kullanılamaz — `navigatorKey` şart; (2) doğrulama ekranının görünmesi
+  /// için push'tan ÖNCE overlay (globalAlarmState) temizlenmelidir.
+  /// Overlay temizlenince bu widget dispose olur; akışın geri kalanı bu
+  /// yüzden widget'a bağlı olmayan statik metoda devredilir.
   Future<void> _handleStop() async {
     if (_processing) return;
     setState(() => _processing = true);
     await Alarm.stop(widget.alarmSettings.id);
 
-    if (_macAddress.isNotEmpty && _sectionIndices.isNotEmpty) {
-      final isDeviceMode = modeProvider.value == AppMode.device;
-
-      if (isDeviceMode) {
-        await _dispenseAndVerify();
-      } else {
-        await _runVerificationForAllSections();
-      }
-    }
+    final String mac = _macAddress;
+    final List<int> sections = List<int>.from(_sectionIndices);
+    final DateTime scheduledTime = widget.alarmSettings.dateTime;
 
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('alarm_meta_${widget.alarmSettings.id}');
 
-    if (!mounted) return;
-    _closeApp();
+    // Overlay'i kaldır → altta kalan Navigator görünür olur, bu widget
+    // dispose edilir. Bundan sonra context/setState KULLANMA.
+    globalAlarmState.value = null;
+
+    await _runPostAlarmFlow(mac, sections, scheduledTime);
   }
 
-  Future<void> _dispenseAndVerify() async {
-    for (int i = 0; i < _sectionIndices.length; i++) {
-      if (!mounted) return;
-      final section = _sectionIndices[i];
+  /// ERTELE: alarmı sustur ve aynı alarmı (metadata'sı korunarak)
+  /// 5 dakika sonrasına yeniden kur.
+  Future<void> _handleSnooze() async {
+    if (_processing) return;
+    setState(() => _processing = true);
 
-      bool dispensed = false;
-      for (int attempt = 1; attempt <= 2; attempt++) {
+    await Alarm.stop(widget.alarmSettings.id);
+    final snoozedTime = DateTime.now().add(const Duration(minutes: 5));
+    try {
+      await Alarm.set(
+        alarmSettings: widget.alarmSettings.copyWith(dateTime: snoozedTime),
+      );
+      debugPrint('[AlarmRingScreen] Alarm 5 dk ertelendi → $snoozedTime');
+    } catch (e) {
+      debugPrint('[AlarmRingScreen] Snooze error: $e');
+    }
+    // Metadata (alarm_meta_{id}) bilinçli olarak SİLİNMEZ — alarm tekrar
+    // çaldığında doğrulama akışı aynı bilgilerle çalışır.
+
+    globalAlarmState.value = null;
+    _exitApp();
+  }
+
+  /// Widget dispose edildikten sonra da güvenle çalışır: yalnızca global
+  /// navigatorKey ve servisler kullanılır.
+  static Future<void> _runPostAlarmFlow(
+      String mac, List<int> sections, DateTime scheduledTime) async {
+    if (mac.isNotEmpty && sections.isNotEmpty) {
+      // Karar entity ID'sine göre: 'patient_' önekli ID'ler device-free hasta
+      // profilidir (motor yok → doğrudan doğrulama).
+      final isPatientAlarm = DatabaseService.isPatientId(mac);
+      final isDeviceMode = modeProvider.value == AppMode.device;
+      final dbService = DatabaseService();
+
+      for (final section in sections) {
+        // Cihaz yolunda önce motoru tetikle (2 deneme).
+        if (!isPatientAlarm && isDeviceMode) {
+          for (int attempt = 1; attempt <= 2; attempt++) {
+            try {
+              await dbService.triggerDispense(mac, section);
+              await Future.delayed(const Duration(seconds: 3));
+              break;
+            } catch (e) {
+              debugPrint('[AlarmRingScreen] Dispense attempt $attempt failed: $e');
+              if (attempt < 2) await Future.delayed(const Duration(seconds: 2));
+            }
+          }
+        }
+
         try {
-          await _dbService.triggerDispense(_macAddress, section);
-          await Future.delayed(const Duration(seconds: 3));
-          dispensed = true;
-          break;
+          await navigatorKey.currentState?.push(
+            MaterialPageRoute(
+              builder: (_) => VerificationScreen(
+                sectionIndex: section,
+                macAddress: mac,
+                scheduledAlarmTime: scheduledTime,
+              ),
+            ),
+          );
         } catch (e) {
-          debugPrint('[AlarmRingScreen] Dispense attempt $attempt failed: $e');
-          if (attempt < 2) await Future.delayed(const Duration(seconds: 2));
+          debugPrint('[AlarmRingScreen] Verification screen error: $e');
         }
       }
-      if (!dispensed) {
-        debugPrint('[AlarmRingScreen] Dispense failed for section $section, proceeding to verify');
-      }
-
-      try {
-        await Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => VerificationScreen(
-              sectionIndex: section,
-              macAddress: _macAddress,
-              scheduledAlarmTime: widget.alarmSettings.dateTime,
-            ),
-          ),
-        );
-      } catch (e) {
-        debugPrint('[AlarmRingScreen] Verification error: $e');
-      }
     }
+
+    _exitApp();
   }
 
-  Future<void> _runVerificationForAllSections() async {
-    for (int i = 0; i < _sectionIndices.length; i++) {
-      if (!mounted) return;
-      try {
-        await Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => VerificationScreen(
-              sectionIndex: _sectionIndices[i],
-              macAddress: _macAddress,
-              scheduledAlarmTime: widget.alarmSettings.dateTime,
-            ),
-          ),
-        );
-      } catch (e) {
-        debugPrint('[AlarmRingScreen] Verification screen error: $e');
-      }
-    }
-  }
-
-  void _closeApp() {
+  static void _exitApp() {
     try {
       platform.invokeMethod('hideFromLockScreen');
     } catch (e) {
@@ -164,7 +182,7 @@ class _AlarmRingScreenState extends State<AlarmRingScreen> {
     if (Platform.isAndroid) {
       SystemNavigator.pop();
     } else {
-      Navigator.of(context).pop();
+      navigatorKey.currentState?.maybePop();
     }
   }
 
@@ -298,31 +316,59 @@ class _AlarmRingScreenState extends State<AlarmRingScreen> {
 
                           Padding(
                             padding: const EdgeInsets.fromLTRB(30, 20, 30, 50),
-                            child: GestureDetector(
-                              onTap: _handleStop,
-                              child: ClipRRect(
-                                borderRadius: BorderRadius.circular(50),
-                                child: BackdropFilter(
-                                  filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                // --- ERTELE (SNOOZE) BUTONU ---
+                                GestureDetector(
+                                  onTap: _handleSnooze,
                                   child: Container(
-                                    width: double.infinity, height: 85,
+                                    width: double.infinity,
+                                    height: 56,
                                     decoration: BoxDecoration(
-                                        color: Colors.white.withOpacity(0.2),
-                                        borderRadius: BorderRadius.circular(50),
-                                        border: Border.all(color: Colors.white.withOpacity(0.4), width: 1.5),
-                                        boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 20, offset: const Offset(0, 10))]
+                                      color: Colors.white.withOpacity(0.08),
+                                      borderRadius: BorderRadius.circular(40),
+                                      border: Border.all(color: Colors.white.withOpacity(0.25), width: 1),
                                     ),
                                     child: Row(
-                                        mainAxisAlignment: MainAxisAlignment.center,
-                                        children: [
-                                          const Icon(Icons.alarm_off_rounded, color: Colors.white, size: 36),
-                                          const SizedBox(width: 15),
-                                          Text("stop_alarm_btn".tr(), style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold, letterSpacing: 2, decoration: TextDecoration.none))
-                                        ]
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        const Icon(Icons.snooze_rounded, color: Colors.white, size: 24),
+                                        const SizedBox(width: 10),
+                                        Text("snooze_button".tr(), style: TextStyle(color: Colors.white.withOpacity(0.95), fontSize: 16, fontWeight: FontWeight.w600, letterSpacing: 1, decoration: TextDecoration.none)),
+                                      ],
                                     ),
                                   ),
                                 ),
-                              ),
+                                const SizedBox(height: 14),
+                                // --- ALARMI DURDUR BUTONU ---
+                                GestureDetector(
+                                  onTap: _handleStop,
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(50),
+                                    child: BackdropFilter(
+                                      filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
+                                      child: Container(
+                                        width: double.infinity, height: 85,
+                                        decoration: BoxDecoration(
+                                            color: Colors.white.withOpacity(0.2),
+                                            borderRadius: BorderRadius.circular(50),
+                                            border: Border.all(color: Colors.white.withOpacity(0.4), width: 1.5),
+                                            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 20, offset: const Offset(0, 10))]
+                                        ),
+                                        child: Row(
+                                            mainAxisAlignment: MainAxisAlignment.center,
+                                            children: [
+                                              const Icon(Icons.alarm_off_rounded, color: Colors.white, size: 36),
+                                              const SizedBox(width: 15),
+                                              Text("stop_alarm_btn".tr(), style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold, letterSpacing: 2, decoration: TextDecoration.none))
+                                            ]
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                         ],

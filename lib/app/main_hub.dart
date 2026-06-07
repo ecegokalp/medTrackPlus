@@ -5,10 +5,12 @@ import 'package:medTrackPlus/app/device_free/patient_list_screen.dart';
 import 'package:medTrackPlus/beta/providers/mode_provider.dart';
 import 'package:medTrackPlus/features/ble_provisioning/sync_screen.dart';
 import 'package:medTrackPlus/app/relatives_screen.dart';
+import 'package:medTrackPlus/services/alarm_coordinator.dart';
 import 'package:medTrackPlus/services/app_mode_service.dart';
 import 'package:medTrackPlus/services/auth_service.dart';
 import 'package:medTrackPlus/services/database_service.dart';
 import 'package:medTrackPlus/services/patient_service.dart';
+import 'package:medTrackPlus/widgets/alarm_settings_dialog.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -45,6 +47,13 @@ class _MainHubState extends State<MainHub> {
         setState(() {
           _currentUser = user;
         });
+        // Uygulama açılışında TÜM entity'lerin (cihaz + hasta) alarmlarını
+        // kur — herhangi bir detay ekranı açılmasa bile alarmlar tetiklensin.
+        if (mounted) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) AlarmCoordinator().rescheduleAll(context);
+          });
+        }
       }
     });
   }
@@ -429,6 +438,8 @@ class _DeviceFreeDashboardState extends State<_DeviceFreeDashboard> {
       _singlePatientId = patientId;
       _loading = false;
     });
+    // Not: Alarm planlaması MainHub açılışında AlarmCoordinator ile
+    // merkezi olarak yapılır; burada tekrar gerekmiyor.
   }
 
   Future<void> _createOwnProfile() async {
@@ -504,6 +515,16 @@ class _DeviceFreeDashboardState extends State<_DeviceFreeDashboard> {
                         Navigator.pop(context);
                         widget.patientListKey.currentState
                             ?.showCreateGroupDialog();
+                      },
+                    ),
+                    // Toplu alarm ayarları: tüm hastalar için geçerli
+                    // (alarm aç/kapa, ön bildirim, süre).
+                    ListTile(
+                      leading: const Icon(Icons.alarm_rounded),
+                      title: Text('alarm_settings'.tr()),
+                      onTap: () {
+                        Navigator.pop(context);
+                        AlarmSettingsDialog.show(this.context);
                       },
                     ),
                     const SizedBox(height: 8),

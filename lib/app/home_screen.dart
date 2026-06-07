@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:firebase_database/firebase_database.dart';
+import 'package:medTrackPlus/services/alarm_coordinator.dart';
 import 'package:medTrackPlus/services/auth_service.dart';
 import 'package:medTrackPlus/services/notification_service.dart';
 import 'package:easy_localization/easy_localization.dart';
@@ -239,8 +240,9 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
     _scheduleDebounce?.cancel();
     _scheduleDebounce = Timer(const Duration(seconds: 2), () async {
       if (!mounted) return;
-      await _notificationService.scheduleMedicationNotifications(
-          context, _sections, widget.macAddress);
+      // Tek cihazı değil TÜM entity'leri (cihazlar + hastalar) yeniden
+      // planla — bir cihazın planı diğerlerinin alarmlarını silmesin.
+      await AlarmCoordinator().rescheduleAll(context);
     });
   }
 
@@ -1076,7 +1078,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
                       await prefs.setBool('feedback_enabled', feedbackEnabled);
 
                       if (mounted) {
-                        await _notificationService.scheduleMedicationNotifications(context, _sections, widget.macAddress);
+                        await AlarmCoordinator().rescheduleAll(context);
                         _showSuccessSnackbar();
                       }
                     } catch (e) {

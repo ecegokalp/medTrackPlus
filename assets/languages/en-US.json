@@ -406,5 +406,6 @@
   "kvkk_checkbox_accept": "I have read and accept the entire text above.",
   "kvkk_scroll_hint": "Please scroll to the end of the text to continue.",
   "kvkk_reject_btn": "Decline",
-  "kvkk_accept_btn": "I Accept"
+  "kvkk_accept_btn": "I Accept",
+  "snooze_button": "Snooze 5 min"
 }

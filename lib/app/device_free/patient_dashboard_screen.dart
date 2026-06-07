@@ -10,9 +10,10 @@ import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:medTrackPlus/app/reports_screen.dart';
 import 'package:medTrackPlus/main.dart' show AppColors;
+import 'package:medTrackPlus/services/alarm_coordinator.dart';
 import 'package:medTrackPlus/services/database_service.dart';
-import 'package:medTrackPlus/services/notification_service.dart';
 import 'package:medTrackPlus/services/patient_service.dart';
+import 'package:medTrackPlus/widgets/alarm_settings_dialog.dart';
 
 /// Device-free patient dashboard: the medication detail screen for ONE
 /// patient profile (patients/{patientId}).
@@ -46,7 +47,7 @@ class PatientDashboardScreen extends StatefulWidget {
 class _PatientDashboardScreenState extends State<PatientDashboardScreen> {
   final DatabaseService _dbService = DatabaseService();
   final PatientService _patientService = PatientService();
-  final NotificationService _notificationService = NotificationService();
+  final AlarmCoordinator _alarmCoordinator = AlarmCoordinator();
 
   StreamSubscription<DocumentSnapshot<Map<String, dynamic>>>? _sub;
 
@@ -118,8 +119,8 @@ class _PatientDashboardScreenState extends State<PatientDashboardScreen> {
     _scheduleDebounce?.cancel();
     _scheduleDebounce = Timer(const Duration(seconds: 2), () {
       if (!mounted) return;
-      _notificationService.scheduleMedicationNotifications(
-          context, meds, widget.patientId);
+      // Tek hastayı değil TÜM entity'leri (cihaz + hasta) yeniden planla.
+      _alarmCoordinator.rescheduleAll(context);
     });
   }
 
@@ -702,6 +703,16 @@ class _PatientDashboardScreenState extends State<PatientDashboardScreen> {
                   ),
                 ),
               ),
+              if (_canEdit) ...[
+                const SizedBox(width: 10),
+                Expanded(
+                  child: _headerAction(
+                    icon: Icons.alarm_rounded,
+                    label: 'alarm_settings'.tr(),
+                    onTap: () => AlarmSettingsDialog.show(context),
+                  ),
+                ),
+              ],
               if (_role == DeviceRole.owner) ...[
                 const SizedBox(width: 10),
                 Expanded(
