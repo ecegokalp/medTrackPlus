@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:medTrackPlus/beta/mlkit_test/pill_detection_service.dart';
 
+/// Raw output of the CV pipeline for a single camera frame.
+/// Produced by CVProcessor and consumed by AccuracyScoringEngine.
 class CVFrameData {
   final bool pillDetected;
   final double pillConfidence;
@@ -32,6 +34,28 @@ class CVFrameData {
 
   final DateTime timestamp;
 
+  /// Current verification-flow phase (workflow state, not just per-frame).
+  final DetectionPhase phase;
+
+  /// Human-readable guidance string for the user (Turkish).
+  final String guidance;
+
+  /// Smoothed pill region (rolling mean over recent frames). Null until
+  /// the tracker has observations.
+  final Rect? smoothedPillRegion;
+
+  /// Last observed pill region — persists across frames where the pill
+  /// momentarily disappears.
+  final Rect? lastSeenPillRegion;
+
+  /// End-to-end CV processing time in milliseconds for this frame.
+  /// Zero for cached frames (skipped by the throttler).
+  final double latencyMs;
+
+  /// True when the processor returned a cached result because the throttler
+  /// decided to skip this frame.
+  final bool fromCache;
+
   const CVFrameData({
     required this.pillDetected,
     required this.pillConfidence,
@@ -46,6 +70,12 @@ class CVFrameData {
     this.isFaceFrontal = true,
     this.pillToLipDistance,
     required this.timestamp,
+    this.phase = DetectionPhase.noFace,
+    this.guidance = '',
+    this.smoothedPillRegion,
+    this.lastSeenPillRegion,
+    this.latencyMs = 0.0,
+    this.fromCache = false,
   });
 
   /// Empty frame — no detections.
@@ -78,6 +108,35 @@ class CVFrameData {
       isFaceFrontal: result.isFaceFrontal,
       pillToLipDistance: result.pillToLipDistance,
       timestamp: result.timestamp,
+      phase: result.phase,
+      guidance: result.guidance,
+      smoothedPillRegion: result.smoothedPillRegion,
+      lastSeenPillRegion: result.lastSeenPillRegion,
     );
   }
+
+  /// Returns a copy of this frame marked as cached, with a refreshed
+  /// timestamp and zero latency. Used when the throttler skips a frame so
+  /// consumers still receive a complete CVFrameData.
+  CVFrameData asCached() => CVFrameData(
+        pillDetected: pillDetected,
+        pillConfidence: pillConfidence,
+        pillBoundingBox: pillBoundingBox,
+        faceDetected: faceDetected,
+        lipContour: lipContour,
+        mouthOpenRatio: mouthOpenRatio,
+        faceBoundingBox: faceBoundingBox,
+        headYaw: headYaw,
+        headPitch: headPitch,
+        headRoll: headRoll,
+        isFaceFrontal: isFaceFrontal,
+        pillToLipDistance: pillToLipDistance,
+        timestamp: DateTime.now(),
+        phase: phase,
+        guidance: guidance,
+        smoothedPillRegion: smoothedPillRegion,
+        lastSeenPillRegion: lastSeenPillRegion,
+        latencyMs: 0.0,
+        fromCache: true,
+      );
 }
