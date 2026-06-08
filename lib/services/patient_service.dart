@@ -158,6 +158,39 @@ class PatientService {
   Stream<DocumentSnapshot<Map<String, dynamic>>> watchPatient(String patientId) =>
       _firestore.collection('patients').doc(patientId).snapshots();
 
+  /// Tek bir ilacın belirli alanlarını transaction ile günceller.
+  /// Group Control Panel'in toplu işlemleri (saat/stok eşitleme) bunu
+  /// hasta+ilaç başına çağırır. Başarılıysa true döner.
+  Future<bool> updateMedicationFields(
+    String patientId,
+    int medIndex, {
+    String? name,
+    int? pillCount,
+    List<Map<String, int>>? schedule,
+  }) async {
+    if (name == null && pillCount == null && schedule == null) return false;
+    try {
+      final ref = _firestore.collection('patients').doc(patientId);
+      await _firestore.runTransaction((tx) async {
+        final snap = await tx.get(ref);
+        if (!snap.exists) return;
+        final List<dynamic> meds =
+            List.from(snap.data()?['medications'] ?? []);
+        if (medIndex < 0 || medIndex >= meds.length) return;
+        final med = Map<String, dynamic>.from(meds[medIndex]);
+        if (name != null && name.trim().isNotEmpty) med['name'] = name.trim();
+        if (pillCount != null) med['pillCount'] = pillCount.clamp(0, 9999);
+        if (schedule != null) med['schedule'] = schedule;
+        meds[medIndex] = med;
+        tx.update(ref, {'medications': meds});
+      });
+      return true;
+    } catch (e) {
+      print('updateMedicationFields error: $e');
+      return false;
+    }
+  }
+
   // ===========================================================================
   // --- HASTA GRUPLARI (cihaz gruplarıyla aynı şema: patient_groups) ---
   // ===========================================================================

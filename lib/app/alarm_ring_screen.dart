@@ -6,6 +6,7 @@ import 'package:alarm/alarm.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import 'package:medTrackPlus/main.dart';
@@ -22,7 +23,8 @@ class AlarmRingScreen extends StatefulWidget {
   State<AlarmRingScreen> createState() => _AlarmRingScreenState();
 }
 
-class _AlarmRingScreenState extends State<AlarmRingScreen> {
+class _AlarmRingScreenState extends State<AlarmRingScreen>
+    with SingleTickerProviderStateMixin {
   static const platform = MethodChannel('com.example.medTrackPlus/lock_control');
   // ignore: unused_field
   final DatabaseService _dbService = DatabaseService();
@@ -30,6 +32,7 @@ class _AlarmRingScreenState extends State<AlarmRingScreen> {
   static const Color colTurquoise = Color(0xFF36C0A6);
   static const Color colSkyBlue = Color(0xFF1D8AD6);
   static const Color colDeepSea = Color(0xFF0F5191);
+  static const Color colNightNavy = Color(0xFF0A1F33);
 
   bool _processing = false;
 
@@ -37,12 +40,23 @@ class _AlarmRingScreenState extends State<AlarmRingScreen> {
   List<int> _sectionIndices = [];
   List<String> _medicineNames = [];
 
+  late final AnimationController _pulseController;
+  late final Animation<double> _pulse;
+
   @override
   void initState() {
     super.initState();
 
 
     platform.invokeMethod('showOnLockScreen');
+
+    _pulseController = AnimationController(
+      vsync: this,
+      duration: const Duration(milliseconds: 1600),
+    )..repeat(reverse: true);
+    _pulse = Tween<double>(begin: 1.0, end: 1.08).animate(
+      CurvedAnimation(parent: _pulseController, curve: Curves.easeInOut),
+    );
 
     _loadMetadata();
   }
@@ -71,6 +85,7 @@ class _AlarmRingScreenState extends State<AlarmRingScreen> {
 
   @override
   void dispose() {
+    _pulseController.dispose();
     super.dispose();
   }
 
@@ -191,7 +206,7 @@ class _AlarmRingScreenState extends State<AlarmRingScreen> {
     return PopScope(
       canPop: false,
       child: Scaffold(
-        backgroundColor: colDeepSea,
+        backgroundColor: colNightNavy,
         body: _buildAlarmUI(),
       ),
     );
@@ -200,186 +215,338 @@ class _AlarmRingScreenState extends State<AlarmRingScreen> {
   Widget _buildAlarmUI() {
     return Stack(
       children: [
+        // --- ARKA PLAN: sakin, koyu degrade ---
         Container(
-          width: double.infinity, height: double.infinity,
+          width: double.infinity,
+          height: double.infinity,
           decoration: const BoxDecoration(
             gradient: LinearGradient(
-                begin: Alignment.topLeft,
-                end: Alignment.bottomRight,
-                colors: [colDeepSea, colSkyBlue, colTurquoise],
-                stops: [0.2, 0.6, 1.0]
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [colNightNavy, Color(0xFF0C3055), colDeepSea],
+              stops: [0.0, 0.55, 1.0],
             ),
           ),
         ),
+        // Çok hafif bir ışık halesi — saatin arkasında derinlik hissi.
         Positioned(
-            top: -100, right: -100,
+          top: 60,
+          left: 0,
+          right: 0,
+          child: IgnorePointer(
             child: Container(
-                width: 300, height: 300,
-                decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.white.withOpacity(0.05))
-            )
-        ),
-        Positioned(
-            bottom: -50, left: -50,
-            child: Container(
-                width: 200, height: 200,
-                decoration: BoxDecoration(shape: BoxShape.circle, color: Colors.black.withOpacity(0.03))
-            )
+              height: 360,
+              decoration: BoxDecoration(
+                gradient: RadialGradient(
+                  colors: [
+                    colSkyBlue.withOpacity(0.14),
+                    Colors.transparent,
+                  ],
+                ),
+              ),
+            ),
+          ),
         ),
 
         SafeArea(
           child: LayoutBuilder(
-              builder: (context, constraints) {
-                return SingleChildScrollView(
-                  physics: const BouncingScrollPhysics(),
-                  child: ConstrainedBox(
-                    constraints: BoxConstraints(minHeight: constraints.maxHeight),
-                    child: IntrinsicHeight(
+            builder: (context, constraints) {
+              return SingleChildScrollView(
+                physics: const BouncingScrollPhysics(),
+                child: ConstrainedBox(
+                  constraints: BoxConstraints(minHeight: constraints.maxHeight),
+                  child: IntrinsicHeight(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
                       child: Column(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         crossAxisAlignment: CrossAxisAlignment.center,
                         children: [
-                          const SizedBox(height: 40),
+                          const SizedBox(height: 28),
 
-                          StreamBuilder(
-                            stream: Stream.periodic(const Duration(seconds: 1)),
-                            builder: (context, snapshot) {
-                              final now = DateTime.now();
-                              return Column(
-                                mainAxisSize: MainAxisSize.min,
-                                children: [
-                                  Text(
-                                      "${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}",
-                                      style: const TextStyle(
-                                          fontSize: 90, fontWeight: FontWeight.w200,
-                                          color: Colors.white, height: 1, fontFamily: 'Roboto',
-                                          decoration: TextDecoration.none,
-                                          shadows: [Shadow(blurRadius: 10, color: Colors.black26, offset: Offset(0, 4))]
-                                      ),
-                                      textAlign: TextAlign.center
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                      DateFormat('EEEE, d MMMM', context.locale.toString()).format(now),
-                                      style: TextStyle(fontSize: 18, color: Colors.white.withOpacity(0.9), fontWeight: FontWeight.w400, letterSpacing: 1.2, decoration: TextDecoration.none),
-                                      textAlign: TextAlign.center
-                                  ),
-                                ],
-                              );
-                            },
-                          ),
+                          // --- ÜST: küçük "alarm" rozeti ---
+                          _buildAlarmChip(),
 
-                          Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Container(
-                                height: 180, width: 180,
-                                decoration: BoxDecoration(
-                                    shape: BoxShape.circle,
-                                    color: Colors.white.withOpacity(0.1),
-                                    boxShadow: [BoxShadow(color: Colors.white.withOpacity(0.15), blurRadius: 50, spreadRadius: 5)]
-                                ),
-                                child: Padding(
-                                    padding: const EdgeInsets.all(30.0),
-                                    child: Image.asset('assets/pill_icon.png', fit: BoxFit.contain, errorBuilder: (c, e, s) => const Icon(Icons.medication_liquid_rounded, size: 100, color: Colors.white))
-                                ),
-                              ),
-                              const SizedBox(height: 40),
+                          const Spacer(flex: 2),
 
-                              Text(
-                                  widget.alarmSettings.notificationSettings.title,
-                                  style: const TextStyle(fontSize: 30, color: Colors.white, fontWeight: FontWeight.bold, letterSpacing: 1, decoration: TextDecoration.none, shadows: [Shadow(color: Colors.black26, blurRadius: 5, offset: Offset(0, 2))]),
-                                  textAlign: TextAlign.center
-                              ),
-                              const SizedBox(height: 15),
+                          // --- SAAT + TARİH ---
+                          _buildClock(),
 
-                              Padding(
-                                padding: const EdgeInsets.symmetric(horizontal: 40.0),
-                                child: _medicineNames.isNotEmpty
-                                    ? Column(
-                                  children: _medicineNames.map((name) => Padding(
-                                    padding: const EdgeInsets.only(bottom: 8.0),
-                                    child: Text(
-                                      "• $name",
-                                      style: TextStyle(fontSize: 22, color: Colors.white.withOpacity(0.95), fontWeight: FontWeight.w600, decoration: TextDecoration.none),
-                                      textAlign: TextAlign.center,
-                                    ),
-                                  )).toList(),
-                                )
-                                    : Text(
-                                    widget.alarmSettings.notificationSettings.body,
-                                    style: TextStyle(fontSize: 20, color: Colors.white.withOpacity(0.95), height: 1.4, fontWeight: FontWeight.w500, decoration: TextDecoration.none),
-                                    textAlign: TextAlign.center, maxLines: 3, overflow: TextOverflow.ellipsis
-                                ),
-                              ),
-                            ],
-                          ),
+                          const Spacer(flex: 2),
 
-                          Padding(
-                            padding: const EdgeInsets.fromLTRB(30, 20, 30, 50),
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                // --- ERTELE (SNOOZE) BUTONU ---
-                                GestureDetector(
-                                  onTap: _handleSnooze,
-                                  child: Container(
-                                    width: double.infinity,
-                                    height: 56,
-                                    decoration: BoxDecoration(
-                                      color: Colors.white.withOpacity(0.08),
-                                      borderRadius: BorderRadius.circular(40),
-                                      border: Border.all(color: Colors.white.withOpacity(0.25), width: 1),
-                                    ),
-                                    child: Row(
-                                      mainAxisAlignment: MainAxisAlignment.center,
-                                      children: [
-                                        const Icon(Icons.snooze_rounded, color: Colors.white, size: 24),
-                                        const SizedBox(width: 10),
-                                        Text("snooze_button".tr(), style: TextStyle(color: Colors.white.withOpacity(0.95), fontSize: 16, fontWeight: FontWeight.w600, letterSpacing: 1, decoration: TextDecoration.none)),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(height: 14),
-                                // --- ALARMI DURDUR BUTONU ---
-                                GestureDetector(
-                                  onTap: _handleStop,
-                                  child: ClipRRect(
-                                    borderRadius: BorderRadius.circular(50),
-                                    child: BackdropFilter(
-                                      filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                                      child: Container(
-                                        width: double.infinity, height: 85,
-                                        decoration: BoxDecoration(
-                                            color: Colors.white.withOpacity(0.2),
-                                            borderRadius: BorderRadius.circular(50),
-                                            border: Border.all(color: Colors.white.withOpacity(0.4), width: 1.5),
-                                            boxShadow: [BoxShadow(color: Colors.black.withOpacity(0.2), blurRadius: 20, offset: const Offset(0, 10))]
-                                        ),
-                                        child: Row(
-                                            mainAxisAlignment: MainAxisAlignment.center,
-                                            children: [
-                                              const Icon(Icons.alarm_off_rounded, color: Colors.white, size: 36),
-                                              const SizedBox(width: 15),
-                                              Text("stop_alarm_btn".tr(), style: const TextStyle(color: Colors.white, fontSize: 22, fontWeight: FontWeight.bold, letterSpacing: 2, decoration: TextDecoration.none))
-                                            ]
-                                        ),
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
+                          // --- ORTA: buzlu cam ilaç kartı ---
+                          _buildMedicineCard(),
+
+                          const Spacer(flex: 3),
+
+                          // --- ALT: aksiyonlar ---
+                          _buildActions(),
+
+                          const SizedBox(height: 36),
                         ],
                       ),
                     ),
                   ),
-                );
-              }
+                ),
+              );
+            },
           ),
         ),
       ],
+    );
+  }
+
+  /// Üstteki küçük "alarm" rozeti — bildirim başlığını kullanır.
+  Widget _buildAlarmChip() {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(0.08),
+        borderRadius: BorderRadius.circular(100),
+        border: Border.all(color: Colors.white.withOpacity(0.12), width: 1),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.alarm_rounded,
+              size: 16, color: Colors.white.withOpacity(0.85)),
+          const SizedBox(width: 8),
+          Text(
+            widget.alarmSettings.notificationSettings.title,
+            style: GoogleFonts.inter(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 1.4,
+              color: Colors.white.withOpacity(0.85),
+              decoration: TextDecoration.none,
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+        ],
+      ),
+    );
+  }
+
+  /// Devasa, ince saat + tarih. Saniyede bir güncellenir.
+  Widget _buildClock() {
+    return StreamBuilder(
+      stream: Stream.periodic(const Duration(seconds: 1)),
+      builder: (context, snapshot) {
+        final now = DateTime.now();
+        return Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              "${now.hour.toString().padLeft(2, '0')}:${now.minute.toString().padLeft(2, '0')}",
+              style: GoogleFonts.inter(
+                fontSize: 96,
+                fontWeight: FontWeight.w200,
+                height: 1.0,
+                letterSpacing: -3,
+                color: Colors.white,
+                decoration: TextDecoration.none,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 10),
+            Text(
+              DateFormat('EEEE, d MMMM', context.locale.toString()).format(now),
+              style: GoogleFonts.inter(
+                fontSize: 16,
+                fontWeight: FontWeight.w400,
+                letterSpacing: 0.4,
+                color: Colors.white.withOpacity(0.65),
+                decoration: TextDecoration.none,
+              ),
+              textAlign: TextAlign.center,
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  /// Buzlu cam ilaç kartı: nabız gibi atan hap ikonu + ilaç adları.
+  Widget _buildMedicineCard() {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(24),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.fromLTRB(20, 20, 20, 20),
+          decoration: BoxDecoration(
+            color: Colors.white.withOpacity(0.07),
+            borderRadius: BorderRadius.circular(24),
+            border: Border.all(color: Colors.white.withOpacity(0.12), width: 1),
+          ),
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              // Nabız animasyonlu hap ikonu
+              ScaleTransition(
+                scale: _pulse,
+                child: Container(
+                  width: 56,
+                  height: 56,
+                  decoration: BoxDecoration(
+                    shape: BoxShape.circle,
+                    color: colTurquoise.withOpacity(0.18),
+                    border: Border.all(
+                        color: colTurquoise.withOpacity(0.35), width: 1),
+                  ),
+                  child: Padding(
+                    padding: const EdgeInsets.all(12.0),
+                    child: Image.asset(
+                      'assets/single_pill.png',
+                      fit: BoxFit.contain,
+                      errorBuilder: (c, e, s) => const Icon(
+                        Icons.medication_rounded,
+                        size: 28,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 16),
+              // İlaç adları (veya bildirim gövdesi)
+              Expanded(
+                child: _medicineNames.isNotEmpty
+                    ? Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: _medicineNames
+                            .map(
+                              (name) => Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 3),
+                                child: Text(
+                                  name,
+                                  style: GoogleFonts.inter(
+                                    fontSize: 17,
+                                    fontWeight: FontWeight.w600,
+                                    height: 1.25,
+                                    color: Colors.white.withOpacity(0.95),
+                                    decoration: TextDecoration.none,
+                                  ),
+                                  maxLines: 2,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ),
+                            )
+                            .toList(),
+                      )
+                    : Text(
+                        widget.alarmSettings.notificationSettings.body,
+                        style: GoogleFonts.inter(
+                          fontSize: 16,
+                          fontWeight: FontWeight.w500,
+                          height: 1.4,
+                          color: Colors.white.withOpacity(0.9),
+                          decoration: TextDecoration.none,
+                        ),
+                        maxLines: 4,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Alt aksiyonlar: dolgulu beyaz "Durdur" (birincil) + hayalet "Ertele".
+  Widget _buildActions() {
+    return AnimatedOpacity(
+      opacity: _processing ? 0.45 : 1.0,
+      duration: const Duration(milliseconds: 200),
+      child: IgnorePointer(
+        ignoring: _processing,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            // --- ERTELE (SNOOZE) — ikincil / hayalet buton ---
+            SizedBox(
+              width: double.infinity,
+              height: 56,
+              child: Material(
+                color: Colors.transparent,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(28),
+                  side: BorderSide(
+                      color: Colors.white.withOpacity(0.25), width: 1),
+                ),
+                child: InkWell(
+                  onTap: _handleSnooze,
+                  borderRadius: BorderRadius.circular(28),
+                  splashColor: Colors.white.withOpacity(0.08),
+                  highlightColor: Colors.white.withOpacity(0.04),
+                  child: Center(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(Icons.snooze_rounded,
+                            size: 20, color: Colors.white.withOpacity(0.9)),
+                        const SizedBox(width: 8),
+                        Text(
+                          "snooze_button".tr(),
+                          style: GoogleFonts.inter(
+                            fontSize: 16,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: 0.3,
+                            color: Colors.white.withOpacity(0.9),
+                            decoration: TextDecoration.none,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 14),
+            // --- ALARMI DURDUR — birincil dolgulu buton ---
+            SizedBox(
+              width: double.infinity,
+              height: 64,
+              child: Material(
+                color: Colors.white,
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(32),
+                ),
+                elevation: 0,
+                child: InkWell(
+                  onTap: _handleStop,
+                  borderRadius: BorderRadius.circular(32),
+                  splashColor: colDeepSea.withOpacity(0.10),
+                  highlightColor: colDeepSea.withOpacity(0.05),
+                  child: Center(
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.alarm_off_rounded,
+                            size: 24, color: colNightNavy),
+                        const SizedBox(width: 10),
+                        Text(
+                          "stop_alarm_btn".tr(),
+                          style: GoogleFonts.inter(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0.3,
+                            color: colNightNavy,
+                            decoration: TextDecoration.none,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
 }

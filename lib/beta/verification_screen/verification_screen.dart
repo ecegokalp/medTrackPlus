@@ -113,6 +113,22 @@ class _VerificationScreenState extends State<VerificationScreen> {
   // video_compress (setDataSource fails with -22).
   bool _finalizing = false;
 
+  // --- Consent-OFF stage watchdog ---
+  // When KVKK video consent is OFF, no recording (and therefore no 30s
+  // recording timer) ever starts — without this watchdog the user would get
+  // neither a countdown nor a timeout dialog. The watchdog starts the FIRST
+  // time the phase reaches DetectionPhase.mouthOpen, resets back to 20s on
+  // every phase ADVANCE, and fires _onStageWatchdogTimeout (→ the shared
+  // _onTimeout finalization path) after 20s without progress.
+  Timer? _stageWatchdogTimer;
+  DateTime? _stageWatchdogStartedAt;
+  // Phase at the last watchdog (re)start — used to detect "advance".
+  DetectionPhase _stageWatchdogPhase = DetectionPhase.noFace;
+  // True when the watchdog fired and detection never succeeded; makes
+  // _saveAndUpload attach failureReason: 'not_detected' to the device doc.
+  bool _stageWatchdogFired = false;
+  static const Duration _stageWatchdogDuration = Duration(seconds: 20);
+
   bool _uploading = false;
   double _uploadProgress = 0.0;
   String _uploadStatus = '';
@@ -294,6 +310,24 @@ class _VerificationScreenState extends State<VerificationScreen> {
               _consentEnabled &&
               result.phase == DetectionPhase.mouthOpen) {
             _startRecording(image);
+          }
+          // Consent OFF — no recording, so the 30s recording timer never
+          // runs. Mirror it with the 20s stage watchdog: start on the FIRST
+          // mouthOpen, reset to 20s whenever the phase advances past the
+          // phase recorded at the last (re)start.
+          if (!_consentEnabled &&
+              !_finalizing &&
+              !_completed &&
+              !_detectionSucceeded) {
+            if (_stageWatchdogTimer == null &&
+                result.phase == DetectionPhase.mouthOpen) {
+              _stageWatchdogPhase = result.phase;
+              _startStageWatchdog();
+            } else if (_stageWatchdogTimer != null &&
+                result.phase.index > _stageWatchdogPhase.index) {
+              _stageWatchdogPhase = result.phase;
+              _startStageWatchdog(); // phase advanced → reset to 20s
+            }
           }
           // Detection success: stop recording IMMEDIATELY and finalize.
           // Continuing to record after the verification completes (a) is
@@ -732,6 +766,44 @@ class _VerificationScreenState extends State<VerificationScreen> {
     _setFinalStatusFromClassification();
   }
 
+  /// (Re)starts the consent-OFF 20-second stage watchdog. Called on the
+  /// first DetectionPhase.mouthOpen and again on every phase advance — each
+  /// call resets the deadline (and the visible countdown badge) to 20s.
+  void _startStageWatchdog() {
+    _stageWatchdogTimer?.cancel();
+    _stageWatchdogTimer =
+        Timer(_stageWatchdogDuration, _onStageWatchdogTimeout);
+    if (mounted) {
+      setState(() => _stageWatchdogStartedAt = DateTime.now());
+    } else {
+      _stageWatchdogStartedAt = DateTime.now();
+    }
+  }
+
+  /// Cancels the stage watchdog and hides its countdown badge.
+  void _cancelStageWatchdog() {
+    _stageWatchdogTimer?.cancel();
+    _stageWatchdogTimer = null;
+    if (mounted && _stageWatchdogStartedAt != null) {
+      setState(() => _stageWatchdogStartedAt = null);
+    } else {
+      _stageWatchdogStartedAt = null;
+    }
+  }
+
+  /// 20 seconds elapsed with no phase advance while consent is OFF —
+  /// detection is stuck. Route into the shared [_onTimeout] finalization
+  /// (grace period → "could not be detected" dialog → save / retry).
+  void _onStageWatchdogTimeout() {
+    if (_completed || _finalizing || _detectionSucceeded) return;
+    _stageWatchdogFired = true;
+    debugPrint(
+        '[VerificationScreen] stage watchdog FIRED (consent off): no phase '
+        'advance past ${_stageWatchdogPhase.name} for '
+        '${_stageWatchdogDuration.inSeconds}s');
+    _onTimeout();
+  }
+
   /// Recording window ended — this is the SINGLE finalization point.
   /// Routes based on whether DetectionPhase.swallowConfirmed fired during the
   /// recording (success), arrives within a short grace period (success), or
@@ -742,15 +814,23 @@ class _VerificationScreenState extends State<VerificationScreen> {
     // sets _recording=false. Otherwise an in-flight frame can spawn a new
     // _startRecording on the same file path while we're still finalizing.
     _finalizing = true;
+    // The watchdog's job is done either way (success or stuck) — stop it so
+    // it can't fire again mid-finalization and hide its countdown badge.
+    _cancelStageWatchdog();
     if (mounted) {
       // Show the non-dismissible overlay from the moment the recording
       // window closes; it stays up through compress + upload + Firestore
       // write, until the centered completion dialog takes over.
+      // With consent OFF there is no recording — use neutral wording.
       setState(() {
-        _statusMessage = 'verif_recording_done_preparing'.tr();
+        _statusMessage = _consentEnabled
+            ? 'verif_recording_done_preparing'.tr()
+            : 'verif_saving_record'.tr();
         _uploading = true;
         _uploadProgress = 0.0;
-        _uploadStatus = 'verif_finalizing_recording'.tr();
+        _uploadStatus = _consentEnabled
+            ? 'verif_finalizing_recording'.tr()
+            : 'verif_saving_record'.tr();
       });
     }
     await _stopRecording();
@@ -802,7 +882,16 @@ class _VerificationScreenState extends State<VerificationScreen> {
       setState(
           () => _statusMessage = 'verif_auto_verification_failed'.tr());
     }
-    final tookIt = await _showTimeoutDialog();
+    // Stage-watchdog firing (consent OFF) gets its own wording — the
+    // medication simply could not be detected — but the same yes/no flow.
+    final tookIt = _stageWatchdogFired
+        ? await _showTimeoutDialog(
+            icon: Icons.search_off_rounded,
+            titleKey: 'verif_not_detected_title',
+            bodyKey: 'verif_not_detected_body',
+            noKey: 'verif_no_try_again',
+          )
+        : await _showTimeoutDialog();
     if (!mounted) return;
     if (tookIt == true) {
       _completed = true;
@@ -851,7 +940,16 @@ class _VerificationScreenState extends State<VerificationScreen> {
     setState(() => _statusMessage = message);
   }
 
-  Future<bool?> _showTimeoutDialog() {
+  /// Shared confirmation dialog for both timeout flavours:
+  ///   • default args  → the 30s recording-window timeout (consent ON)
+  ///   • overridden    → the 20s stage-watchdog "not detected" popup
+  ///     (consent OFF), same actions/behavior, different wording.
+  Future<bool?> _showTimeoutDialog({
+    IconData icon = Icons.timer_off_rounded,
+    String titleKey = 'verif_time_expired',
+    String bodyKey = 'verif_timeout_dialog_body',
+    String noKey = 'verif_no_didnt_take',
+  }) {
     return showDialog<bool>(
       context: context,
       barrierDismissible: false,
@@ -859,16 +957,16 @@ class _VerificationScreenState extends State<VerificationScreen> {
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
         title: Row(
           children: [
-            const Icon(Icons.timer_off_rounded, color: Colors.orange),
+            Icon(icon, color: Colors.orange),
             const SizedBox(width: 8),
-            Text('verif_time_expired'.tr()),
+            Expanded(child: Text(titleKey.tr())),
           ],
         ),
-        content: Text('verif_timeout_dialog_body'.tr()),
+        content: Text(bodyKey.tr()),
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(ctx, false),
-            child: Text('verif_no_didnt_take'.tr()),
+            child: Text(noKey.tr()),
           ),
           ElevatedButton(
             style: ElevatedButton.styleFrom(
@@ -893,6 +991,11 @@ class _VerificationScreenState extends State<VerificationScreen> {
     _detectionSucceeded = false;
     _completed = false;
     _finalizing = false;
+    // Fresh attempt: clear the consent-OFF watchdog so the next mouthOpen
+    // starts a brand-new 20s window.
+    _cancelStageWatchdog();
+    _stageWatchdogFired = false;
+    _stageWatchdogPhase = DetectionPhase.noFace;
     _cvFrames.clear();
     _avgPillToLipDistance = 0.0;
     _pillToLipSamples = 0;
@@ -1128,6 +1231,10 @@ class _VerificationScreenState extends State<VerificationScreen> {
               'userId': userId,
               'section': widget.sectionIndex,
               'hasDevice': !isPatient,
+              // Consent-OFF stage watchdog fired and detection never
+              // succeeded → flag the record (reports count this).
+              if (_stageWatchdogFired && !_detectionSucceeded)
+                'failureReason': 'not_detected',
             },
           );
         } catch (_) {}
@@ -1593,6 +1700,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
                   ? null
                   : () {
                       _service.reset();
+                      _cancelStageWatchdog();
                       setState(() {
                         _lastResult = PillOnTongueResult.empty();
                         _frameCount = 0;
@@ -1601,6 +1709,8 @@ class _VerificationScreenState extends State<VerificationScreen> {
                         _pillOnTongueFrames = 0;
                         _highestPhaseReached = DetectionPhase.noFace;
                         _drinkReached = false;
+                        _stageWatchdogFired = false;
+                        _stageWatchdogPhase = DetectionPhase.noFace;
                       });
                     },
             ),
@@ -1629,6 +1739,8 @@ class _VerificationScreenState extends State<VerificationScreen> {
                       recordingStartedAt: _recordingStartedAt,
                       consentEnabled: _consentEnabled,
                       lastFrameTime: _lastFrameTime,
+                      watchdogStartedAt: _stageWatchdogStartedAt,
+                      watchdogDuration: _stageWatchdogDuration,
                     ),
                   ),
                 ),
@@ -1688,6 +1800,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
   @override
   void dispose() {
     _recordingTimeoutTimer?.cancel();
+    _stageWatchdogTimer?.cancel();
     if (_encoderConfigured) {
       _encoderActive = false;
       FlutterQuickVideoEncoder.finish().catchError((_) {});
@@ -1716,6 +1829,9 @@ class _CameraCard extends StatelessWidget {
   final DateTime? recordingStartedAt;
   final bool consentEnabled;
   final DateTime? lastFrameTime;
+  // Consent-OFF stage watchdog countdown (null → badge hidden).
+  final DateTime? watchdogStartedAt;
+  final Duration watchdogDuration;
 
   const _CameraCard({
     required this.controller,
@@ -1731,6 +1847,8 @@ class _CameraCard extends StatelessWidget {
     required this.recordingStartedAt,
     required this.consentEnabled,
     required this.lastFrameTime,
+    required this.watchdogStartedAt,
+    required this.watchdogDuration,
   });
 
   bool get _framesAreStale {
@@ -1789,6 +1907,17 @@ class _CameraCard extends StatelessWidget {
                   top: 12,
                   left: 12,
                   child: _RecPill(startedAt: recordingStartedAt!),
+                ),
+              // Consent OFF → no REC pill; show the 20s stage-watchdog
+              // countdown in the same spot/style instead.
+              if (!consentEnabled && watchdogStartedAt != null)
+                Positioned(
+                  top: 12,
+                  left: 12,
+                  child: _WatchdogPill(
+                    startedAt: watchdogStartedAt!,
+                    duration: watchdogDuration,
+                  ),
                 ),
               Positioned(
                 top: 12,
@@ -2248,6 +2377,66 @@ class _RecPillState extends State<_RecPill>
           const SizedBox(width: 5),
           Text(
             'verif_rec_timer'.tr(args: [elapsed.toString()]),
+            style: GoogleFonts.inter(
+              color: Colors.white,
+              fontWeight: FontWeight.w700,
+              fontSize: 10,
+              letterSpacing: 0.5,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// Countdown badge for the consent-OFF stage watchdog — same place/style as
+/// [_RecPill], but counts DOWN the remaining seconds of the 20s window.
+/// The parent resets [startedAt] whenever the detection phase advances,
+/// which snaps the countdown back to the full duration.
+class _WatchdogPill extends StatefulWidget {
+  final DateTime startedAt;
+  final Duration duration;
+  const _WatchdogPill({required this.startedAt, required this.duration});
+  @override
+  State<_WatchdogPill> createState() => _WatchdogPillState();
+}
+
+class _WatchdogPillState extends State<_WatchdogPill> {
+  Timer? _t;
+  @override
+  void initState() {
+    super.initState();
+    _t = Timer.periodic(
+        const Duration(milliseconds: 250), (_) => setState(() {}));
+  }
+
+  @override
+  void dispose() {
+    _t?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final elapsed = DateTime.now().difference(widget.startedAt).inSeconds;
+    final remaining =
+        (widget.duration.inSeconds - elapsed).clamp(0, widget.duration.inSeconds);
+    final urgent = remaining <= 5;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(20),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.timer_outlined,
+              color: urgent ? Colors.redAccent : Colors.amberAccent, size: 12),
+          const SizedBox(width: 5),
+          Text(
+            'verif_watchdog_timer'.tr(args: [remaining.toString()]),
             style: GoogleFonts.inter(
               color: Colors.white,
               fontWeight: FontWeight.w700,

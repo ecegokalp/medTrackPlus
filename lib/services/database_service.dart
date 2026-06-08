@@ -331,6 +331,7 @@ class DatabaseService {
       }).toList();
 
       int total = 0, successCount = 0, suspiciousCount = 0, rejectedCount = 0;
+      int notDetectedCount = 0;
       double totalScore = 0;
       Map<String, Map<String, dynamic>> sectionBreakdown = {};
 
@@ -347,6 +348,10 @@ class DatabaseService {
         if (classification == 'success') successCount++;
         else if (classification == 'suspicious') suspiciousCount++;
         else if (classification == 'rejected') rejectedCount++;
+
+        // Consent-OFF stage watchdog: detection never advanced and the
+        // verification was flagged with failureReason: 'not_detected'.
+        if (data['failureReason'] == 'not_detected') notDetectedCount++;
 
         if (!sectionBreakdown.containsKey(section)) {
           sectionBreakdown[section] = {
@@ -377,6 +382,7 @@ class DatabaseService {
         'success': successCount,
         'suspicious': suspiciousCount,
         'rejected': rejectedCount,
+        'notDetected': notDetectedCount,
         'successRate': total > 0 ? successCount / total : 0.0,
         'suspiciousRate': total > 0 ? suspiciousCount / total : 0.0,
         'rejectedRate': total > 0 ? rejectedCount / total : 0.0,
@@ -389,6 +395,7 @@ class DatabaseService {
       print("Verification Stats Error: $e");
       return {
         'total': 0, 'success': 0, 'suspicious': 0, 'rejected': 0,
+        'notDetected': 0,
         'successRate': 0.0, 'suspiciousRate': 0.0, 'rejectedRate': 0.0,
         'avgScore': 0.0, 'sectionBreakdown': {}, 'lastVerification': null,
         'source': 'error',

@@ -2,10 +2,13 @@ import 'package:cloud_firestore/cloud_firestore.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:medTrackPlus/app/device_free/group_dashboard_screen.dart';
 import 'package:medTrackPlus/app/device_free/patient_dashboard_screen.dart';
 import 'package:medTrackPlus/main.dart' show AppColors;
 import 'package:medTrackPlus/services/patient_service.dart';
+import 'package:medTrackPlus/widgets/alarm_settings_dialog.dart';
 
 /// Multi-patient dashboard for device-free mode: lists all patient
 /// profiles the user can access, with grouping ("rooms") — the patient
@@ -14,7 +17,20 @@ import 'package:medTrackPlus/services/patient_service.dart';
 /// Groups live in users/{uid}.patient_groups (same shape as device_groups).
 /// Tapping a patient opens PatientDashboardScreen full-screen.
 class PatientListScreen extends StatefulWidget {
-  const PatientListScreen({super.key});
+  /// Edit (drag) mode — mirrors DeviceListScreen.isDragMode.
+  final bool isDragMode;
+
+  /// Called when the screen wants to flip edit mode (e.g. a long-press
+  /// drag starts while edit mode is off).
+  final Function(bool) onModeChanged;
+
+  const PatientListScreen({
+    super.key,
+    this.isDragMode = false,
+    this.onModeChanged = _noopModeChanged,
+  });
+
+  static void _noopModeChanged(bool _) {}
 
   @override
   State<PatientListScreen> createState() => PatientListScreenState();
@@ -110,40 +126,26 @@ class PatientListScreenState extends State<PatientListScreen> {
     await _patientService.createPatientGroup(_uid!, name);
   }
 
-  Future<void> _showMoveToGroupSheet(
-      String patientId, List<dynamic> groups) async {
-    final selected = await showModalBottomSheet<String>(
-      context: context,
-      shape: const RoundedRectangleBorder(
-          borderRadius: BorderRadius.vertical(top: Radius.circular(20))),
-      builder: (context) => SafeArea(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const SizedBox(height: 12),
-            Text('move_to_group'.tr(),
-                style: GoogleFonts.inter(
-                    fontWeight: FontWeight.w700, fontSize: 16)),
-            const SizedBox(height: 8),
-            ListTile(
-              leading: const Icon(Icons.home_rounded),
-              title: Text('main_list'.tr()),
-              onTap: () => Navigator.pop(context, ''),
-            ),
-            for (final g in groups)
-              ListTile(
-                leading: const Icon(Icons.groups_rounded,
-                    color: AppColors.skyBlue),
-                title: Text(g['name'] ?? ''),
-                onTap: () => Navigator.pop(context, g['id'] as String),
-              ),
-            const SizedBox(height: 12),
-          ],
-        ),
+  // ===========================================================================
+  // --- SÜRÜKLE & BIRAK ---
+  // ===========================================================================
+
+  /// Hastayı hedef gruba (veya '' ile ana listeye) taşır ve bildirim gösterir.
+  Future<void> _movePatient(String patientId, String targetGroupId,
+      {String? groupName}) async {
+    final uid = _uid;
+    if (uid == null) return;
+    HapticFeedback.lightImpact();
+    await _patientService.movePatientToGroup(uid, patientId, targetGroupId);
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(targetGroupId.isEmpty
+            ? 'patient_moved_main'.tr()
+            : 'patient_moved_room'.tr(args: [groupName ?? ''])),
+        duration: const Duration(milliseconds: 900),
       ),
     );
-    if (selected == null || _uid == null) return;
-    await _patientService.movePatientToGroup(_uid!, patientId, selected);
   }
 
   // ===========================================================================
@@ -180,26 +182,87 @@ class PatientListScreenState extends State<PatientListScreen> {
           return _buildEmptyState();
         }
 
-        return RefreshIndicator(
-          onRefresh: refresh,
-          child: ListView(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 96),
-            children: [
-              for (final g in groups) _buildGroupCard(g),
-              if (ungrouped.isNotEmpty && groups.isNotEmpty)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 8),
-                  child: Text('other_patients'.tr(),
-                      style: GoogleFonts.inter(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.blueGrey)),
+        // Arka plan, "gruptan çıkar" hedefi: hasta kartı bir grubun
+        // dışına (listenin boş alanına) bırakılırsa tüm gruplardan çıkar.
+        return DragTarget<String>(
+          onWillAccept: (data) => widget.isDragMode && data != null,
+          onAccept: (patientId) => _movePatient(patientId, ''),
+          builder: (context, candidateData, rejectedData) {
+            return AnimatedContainer(
+              duration: const Duration(milliseconds: 300),
+              curve: Curves.easeInOut,
+              color: candidateData.isNotEmpty
+                  ? AppColors.skyBlue.withOpacity(0.05)
+                  : Colors.transparent,
+              child: RefreshIndicator(
+                onRefresh: refresh,
+                child: ListView(
+                  padding: const EdgeInsets.fromLTRB(20, 16, 20, 96),
+                  children: [
+                    _buildDragInfoBanner(),
+                    for (final g in groups) _buildGroupCard(g),
+                    if (ungrouped.isNotEmpty && groups.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 8),
+                        child: Text('other_patients'.tr(),
+                            style: GoogleFonts.inter(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: Colors.blueGrey)),
+                      ),
+                    for (final p in ungrouped) _buildPatientCard(p),
+                    // Geniş bırakma alanı (gruptan çıkarmayı kolaylaştırır).
+                    const SizedBox(height: 150),
+                  ],
                 ),
-              for (final p in ungrouped) _buildPatientCard(p, groups),
-            ],
-          ),
+              ),
+            );
+          },
         );
       },
+    );
+  }
+
+  /// Düzenleme modu açıkken görünen bilgi şeridi (cihaz listesiyle aynı).
+  Widget _buildDragInfoBanner() {
+    return AnimatedCrossFade(
+      duration: const Duration(milliseconds: 300),
+      crossFadeState: widget.isDragMode
+          ? CrossFadeState.showFirst
+          : CrossFadeState.showSecond,
+      firstChild: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        margin: const EdgeInsets.only(bottom: 16),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF0F9FF),
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(color: const Color(0xFFBAE6FD)),
+        ),
+        child: Row(
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                shape: BoxShape.circle,
+              ),
+              child: const Icon(Icons.touch_app_rounded,
+                  color: AppColors.deepSea, size: 20),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'drag_info'.tr(),
+                style: const TextStyle(
+                    color: AppColors.deepSea,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500),
+              ),
+            ),
+          ],
+        ),
+      ),
+      secondChild: const SizedBox(width: double.infinity),
     );
   }
 
@@ -239,62 +302,182 @@ class PatientListScreenState extends State<PatientListScreen> {
   }
 
   Widget _buildGroupCard(Map<String, dynamic> group) {
+    final String groupId = group['id'] as String? ?? '';
+    final String groupName = group['name'] as String? ?? '';
     final List<String> memberIds = List<String>.from(group['devices'] ?? []);
     final members =
         _patients.where((p) => memberIds.contains(p['id'])).toList();
 
-    return Container(
-      margin: const EdgeInsets.only(bottom: 12),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(16),
-        border: Border.all(color: AppColors.skyBlue.withOpacity(0.12)),
-      ),
-      child: ExpansionTile(
-        shape: const Border(),
-        leading: const Icon(Icons.groups_rounded, color: AppColors.skyBlue),
-        title: Text(group['name'] ?? '',
-            style: GoogleFonts.inter(fontWeight: FontWeight.w700)),
-        subtitle: Text('${members.length} ${'patients_suffix'.tr()}',
-            style: const TextStyle(fontSize: 12)),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            IconButton(
-              icon: const Icon(Icons.delete_outline_rounded,
-                  size: 20, color: Colors.red),
-              onPressed: () async {
-                if (_uid != null) {
-                  await _patientService.deletePatientGroup(
-                      _uid!, group['id'] as String);
-                }
-              },
-            ),
-            const Icon(Icons.expand_more_rounded),
-          ],
+    Widget buildCard({required bool hovering}) {
+      return Container(
+        margin: const EdgeInsets.only(bottom: 12),
+        decoration: BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.circular(16),
+          border: Border.all(
+            color: hovering
+                ? AppColors.skyBlue
+                : AppColors.skyBlue.withOpacity(0.12),
+            width: hovering ? 2 : 1,
+          ),
+          boxShadow: hovering
+              ? [
+                  BoxShadow(
+                    color: AppColors.skyBlue.withOpacity(0.25),
+                    blurRadius: 12,
+                    offset: const Offset(0, 4),
+                  ),
+                ]
+              : null,
         ),
-        children: [
-          if (members.isEmpty)
-            Padding(
-              padding: const EdgeInsets.all(12),
-              child: Text('empty_room'.tr(),
-                  style: TextStyle(
-                      fontSize: 12, color: Colors.blueGrey.shade300)),
+        child: InkWell(
+          // Grup kabına uzun basış: toplu alarm ayarları.
+          onLongPress: () => AlarmSettingsDialog.show(context),
+          borderRadius: BorderRadius.circular(16),
+          child: ExpansionTile(
+            shape: const Border(),
+            initiallyExpanded: widget.isDragMode,
+            leading:
+                const Icon(Icons.groups_rounded, color: AppColors.skyBlue),
+            title: Text(groupName,
+                style: GoogleFonts.inter(fontWeight: FontWeight.w700)),
+            subtitle: Text('${members.length} ${'patients_suffix'.tr()}',
+                style: const TextStyle(fontSize: 12)),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                IconButton(
+                  icon: const Icon(Icons.alarm_rounded,
+                      size: 20, color: AppColors.skyBlue),
+                  tooltip: 'alarm_settings'.tr(),
+                  onPressed: () => AlarmSettingsDialog.show(context),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.delete_outline_rounded,
+                      size: 20, color: Colors.red),
+                  onPressed: () async {
+                    if (_uid != null) {
+                      await _patientService.deletePatientGroup(_uid!, groupId);
+                    }
+                  },
+                ),
+                const Icon(Icons.expand_more_rounded),
+              ],
             ),
-          for (final p in members)
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: _buildPatientCard(p, null, inGroup: true),
+            children: [
+              // GROUP CONTROL PANEL: grubun tüm ilaçlarını tek panelde
+              // toplayıp saat/stok bazlı toplu düzenleme sağlar.
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 8),
+                child: Material(
+                  color: AppColors.skyBlue.withOpacity(0.08),
+                  borderRadius: BorderRadius.circular(12),
+                  child: InkWell(
+                    borderRadius: BorderRadius.circular(12),
+                    onTap: () async {
+                      await Navigator.push(
+                        context,
+                        MaterialPageRoute(
+                          builder: (_) => GroupDashboardScreen(
+                            groupId: groupId,
+                            groupName: groupName,
+                            patientIds: memberIds,
+                          ),
+                        ),
+                      );
+                      refresh();
+                    },
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 14, vertical: 12),
+                      child: Row(
+                        children: [
+                          const Icon(Icons.dashboard_customize_rounded,
+                              size: 18, color: AppColors.skyBlue),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text('group_control_panel'.tr(),
+                                style: GoogleFonts.inter(
+                                    fontSize: 13,
+                                    fontWeight: FontWeight.w700,
+                                    color: AppColors.skyBlue)),
+                          ),
+                          const Icon(Icons.arrow_forward_ios_rounded,
+                              size: 12, color: AppColors.skyBlue),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+              ),
+              if (members.isEmpty)
+                Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Text('empty_room'.tr(),
+                      style: TextStyle(
+                          fontSize: 12, color: Colors.blueGrey.shade300)),
+                ),
+              for (final p in members)
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  child: _buildPatientCard(p, inGroup: true),
+                ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      );
+    }
+
+    if (widget.isDragMode) {
+      // Grup kartı bırakma hedefi: üzerine gelince parlar/hafif büyür.
+      return DragTarget<String>(
+        onWillAccept: (data) => data != null,
+        onAccept: (patientId) =>
+            _movePatient(patientId, groupId, groupName: groupName),
+        builder: (context, candidateData, rejectedData) {
+          final isHovering = candidateData.isNotEmpty;
+          return TweenAnimationBuilder<double>(
+            duration: const Duration(milliseconds: 200),
+            curve: Curves.easeOutBack,
+            tween: Tween<double>(begin: 1.0, end: isHovering ? 1.02 : 1.0),
+            builder: (context, scale, child) {
+              return Transform.scale(
+                scale: scale,
+                child: buildCard(hovering: isHovering),
+              );
+            },
+          );
+        },
+      );
+    }
+
+    return buildCard(hovering: false);
+  }
+
+  Widget _buildPatientAvatar(Map<String, String> patient) {
+    return CircleAvatar(
+      backgroundColor: AppColors.turquoise.withOpacity(0.15),
+      backgroundImage: (patient['photo'] ?? '').isNotEmpty
+          ? NetworkImage(patient['photo']!)
+          : null,
+      child: (patient['photo'] ?? '').isNotEmpty
+          ? null
+          : Text(
+              (patient['name'] ?? 'H').isNotEmpty
+                  ? patient['name']![0].toUpperCase()
+                  : 'H',
+              style: const TextStyle(
+                  color: AppColors.turquoise, fontWeight: FontWeight.bold),
             ),
-          const SizedBox(height: 8),
-        ],
-      ),
     );
   }
 
-  Widget _buildPatientCard(Map<String, String> patient, List<dynamic>? groups,
+  Widget _buildPatientCard(Map<String, String> patient,
       {bool inGroup = false}) {
-    return Container(
+    final patientId = patient['id'] ?? '';
+
+    final Widget card = Container(
       margin: const EdgeInsets.only(bottom: 10),
       decoration: BoxDecoration(
         color: inGroup ? AppColors.background : Colors.white,
@@ -312,48 +495,80 @@ class PatientListScreenState extends State<PatientListScreen> {
       ),
       child: ListTile(
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-        leading: CircleAvatar(
-          backgroundColor: AppColors.turquoise.withOpacity(0.15),
-          backgroundImage: (patient['photo'] ?? '').isNotEmpty
-              ? NetworkImage(patient['photo']!)
-              : null,
-          child: (patient['photo'] ?? '').isNotEmpty
-              ? null
-              : Text(
-                  (patient['name'] ?? 'H').isNotEmpty
-                      ? patient['name']![0].toUpperCase()
-                      : 'H',
-                  style: const TextStyle(
-                      color: AppColors.turquoise, fontWeight: FontWeight.bold),
-                ),
-        ),
+        leading: _buildPatientAvatar(patient),
         title: Text(patient['name'] ?? '',
             style: GoogleFonts.inter(
                 fontWeight: FontWeight.w700, color: AppColors.deepSea)),
-        trailing: const Icon(Icons.chevron_right_rounded,
-            color: AppColors.skyBlue),
-        onTap: () async {
-          await Navigator.push(
-            context,
-            MaterialPageRoute(
-              builder: (_) =>
-                  PatientDashboardScreen(patientId: patient['id']!),
-            ),
-          );
-          refresh();
-        },
-        onLongPress: () async {
-          // Uzun basış: gruba taşı / listeden kaldırma menüsü
-          final userDoc = await FirebaseFirestore.instance
-              .collection('users')
-              .doc(_uid)
-              .get();
-          final currentGroups =
-              List<dynamic>.from(userDoc.data()?['patient_groups'] ?? []);
-          if (!mounted) return;
-          await _showMoveToGroupSheet(patient['id']!, currentGroups);
-        },
+        trailing: widget.isDragMode
+            ? const Icon(Icons.drag_indicator_rounded, color: Colors.grey)
+            : const Icon(Icons.chevron_right_rounded,
+                color: AppColors.skyBlue),
+        // Düzenleme modunda dokunma gezinmez (cihaz listesiyle tutarlı).
+        onTap: widget.isDragMode
+            ? null
+            : () async {
+                await Navigator.push(
+                  context,
+                  MaterialPageRoute(
+                    builder: (_) =>
+                        PatientDashboardScreen(patientId: patientId),
+                  ),
+                );
+                refresh();
+              },
       ),
+    );
+
+    // Uzun basış sürüklemeyi başlatır; düzenleme modu kapalıysa aynı
+    // hareketle otomatik açılır (eski "gruba taşı" menüsünün yerini aldı).
+    return LongPressDraggable<String>(
+      data: patientId,
+      delay: const Duration(milliseconds: 300),
+      onDragStarted: () {
+        HapticFeedback.selectionClick();
+        if (!widget.isDragMode) {
+          widget.onModeChanged(true);
+        }
+      },
+      childWhenDragging: Opacity(opacity: 0.3, child: card),
+      feedback: Material(
+        color: Colors.transparent,
+        child: Transform.scale(
+          scale: 1.04,
+          child: SizedBox(
+            width: MediaQuery.of(context).size.width * 0.85,
+            child: Card(
+              elevation: 10,
+              color: Colors.white.withOpacity(0.95),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(14)),
+              child: Padding(
+                padding: const EdgeInsets.all(12),
+                child: Row(
+                  children: [
+                    const Icon(Icons.drag_indicator,
+                        color: AppColors.skyBlue),
+                    const SizedBox(width: 12),
+                    _buildPatientAvatar(patient),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Text(
+                        patient['name'] ?? '',
+                        style: GoogleFonts.inter(
+                            fontWeight: FontWeight.bold,
+                            fontSize: 16,
+                            color: AppColors.deepSea),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+      ),
+      child: card,
     );
   }
 }

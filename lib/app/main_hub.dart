@@ -10,7 +10,6 @@ import 'package:medTrackPlus/services/app_mode_service.dart';
 import 'package:medTrackPlus/services/auth_service.dart';
 import 'package:medTrackPlus/services/database_service.dart';
 import 'package:medTrackPlus/services/patient_service.dart';
-import 'package:medTrackPlus/widgets/alarm_settings_dialog.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
@@ -32,6 +31,10 @@ class _MainHubState extends State<MainHub> {
   int _selectedIndex = 0;
 
   bool _isDragMode = false;
+
+  // Device-free dashboard çoklu hasta modunda mı? (_DeviceFreeDashboard
+  // yüklenince bildirir; AppBar'daki düzenleme düğmesini göstermek için.)
+  bool _dfMultiPatient = false;
 
   AppUser? _currentUser;
 
@@ -272,7 +275,16 @@ class _MainHubState extends State<MainHub> {
     if (_isDeviceFree) {
       // --- DEVICE-FREE MOD: 2 sekme (Dashboard, Yakınlar) ---
       if (_selectedIndex == 0) {
-        currentScreen = _DeviceFreeDashboard(patientListKey: _patientListKey);
+        currentScreen = _DeviceFreeDashboard(
+          patientListKey: _patientListKey,
+          isDragMode: _isDragMode,
+          onModeChanged: _toggleDragMode,
+          onMultiPatientResolved: (multi) {
+            if (mounted && multi != _dfMultiPatient) {
+              setState(() => _dfMultiPatient = multi);
+            }
+          },
+        );
       } else {
         currentScreen = const RelativesScreen();
       }
@@ -333,14 +345,16 @@ class _MainHubState extends State<MainHub> {
         ),
         title: Text(
           _isDeviceFree
-              ? (_selectedIndex == 0 ? 'dashboard'.tr() : 'relatives'.tr())
+              ? (_selectedIndex == 0
+                  ? (_isDragMode ? 'edit_mode'.tr() : 'dashboard'.tr())
+                  : 'relatives'.tr())
               : (_selectedIndex == 0
                   ? (_isDragMode ? 'edit_mode'.tr() : 'my_devices'.tr())
                   : (_selectedIndex == 1 ? 'sync'.tr() : 'relatives'.tr())),
           style: theme.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.bold),
         ),
         actions: [
-          if (!_isDeviceFree && _selectedIndex == 0)
+          if (_selectedIndex == 0 && (!_isDeviceFree || _dfMultiPatient))
             IconButton(
               icon: Icon(
                 _isDragMode ? Icons.check_circle_rounded : Icons.menu_rounded,
@@ -354,9 +368,13 @@ class _MainHubState extends State<MainHub> {
         ],
       ),
       body: currentScreen,
-      floatingActionButton: (!_isDeviceFree && _selectedIndex == 0 && _isDragMode)
+      floatingActionButton: (_selectedIndex == 0 &&
+              _isDragMode &&
+              (!_isDeviceFree || _dfMultiPatient))
           ? FloatingActionButton.extended(
-        onPressed: _showCreateFolderDialog,
+        onPressed: _isDeviceFree
+            ? () => _patientListKey.currentState?.showCreateGroupDialog()
+            : _showCreateFolderDialog,
         icon: const Icon(Icons.groups_rounded),
         label: Text("create_new_group".tr()),
         backgroundColor: colorScheme.primary,
@@ -400,7 +418,19 @@ class _MainHubState extends State<MainHub> {
 /// değiştirilebilir.
 class _DeviceFreeDashboard extends StatefulWidget {
   final GlobalKey<PatientListScreenState> patientListKey;
-  const _DeviceFreeDashboard({required this.patientListKey});
+  final bool isDragMode;
+  final Function(bool) onModeChanged;
+
+  /// Çoklu hasta modu yüklenince MainHub'a bildirilir (AppBar'daki
+  /// düzenleme düğmesinin görünürlüğü için).
+  final ValueChanged<bool> onMultiPatientResolved;
+
+  const _DeviceFreeDashboard({
+    required this.patientListKey,
+    required this.isDragMode,
+    required this.onModeChanged,
+    required this.onMultiPatientResolved,
+  });
 
   @override
   State<_DeviceFreeDashboard> createState() => _DeviceFreeDashboardState();
@@ -438,6 +468,7 @@ class _DeviceFreeDashboardState extends State<_DeviceFreeDashboard> {
       _singlePatientId = patientId;
       _loading = false;
     });
+    widget.onMultiPatientResolved(multi);
     // Not: Alarm planlaması MainHub açılışında AlarmCoordinator ile
     // merkezi olarak yapılır; burada tekrar gerekmiyor.
   }
@@ -483,57 +514,55 @@ class _DeviceFreeDashboardState extends State<_DeviceFreeDashboard> {
       // Çoklu hasta: gruplandırılabilir liste + ekleme menüsü.
       return Scaffold(
         backgroundColor: Colors.transparent,
-        body: PatientListScreen(key: widget.patientListKey),
-        floatingActionButton: FloatingActionButton(
-          backgroundColor: Theme.of(context).colorScheme.primary,
-          foregroundColor: Colors.white,
-          child: const Icon(Icons.add),
-          onPressed: () {
-            showModalBottomSheet(
-              context: context,
-              shape: const RoundedRectangleBorder(
-                  borderRadius:
-                      BorderRadius.vertical(top: Radius.circular(20))),
-              builder: (context) => SafeArea(
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const SizedBox(height: 8),
-                    ListTile(
-                      leading: const Icon(Icons.person_add_rounded),
-                      title: Text('create_new_patient_profile'.tr()),
-                      onTap: () {
-                        Navigator.pop(context);
-                        widget.patientListKey.currentState
-                            ?.showAddPatientDialog();
-                      },
-                    ),
-                    ListTile(
-                      leading: const Icon(Icons.groups_rounded),
-                      title: Text('create_new_group'.tr()),
-                      onTap: () {
-                        Navigator.pop(context);
-                        widget.patientListKey.currentState
-                            ?.showCreateGroupDialog();
-                      },
-                    ),
-                    // Toplu alarm ayarları: tüm hastalar için geçerli
-                    // (alarm aç/kapa, ön bildirim, süre).
-                    ListTile(
-                      leading: const Icon(Icons.alarm_rounded),
-                      title: Text('alarm_settings'.tr()),
-                      onTap: () {
-                        Navigator.pop(context);
-                        AlarmSettingsDialog.show(this.context);
-                      },
-                    ),
-                    const SizedBox(height: 8),
-                  ],
-                ),
-              ),
-            );
-          },
+        body: PatientListScreen(
+          key: widget.patientListKey,
+          isDragMode: widget.isDragMode,
+          onModeChanged: widget.onModeChanged,
         ),
+        // Düzenleme modunda "+" gizlenir; MainHub "yeni grup" FAB'ı gösterir
+        // (cihaz moduyla aynı davranış).
+        floatingActionButton: widget.isDragMode
+            ? null
+            : FloatingActionButton(
+                backgroundColor: Theme.of(context).colorScheme.primary,
+                foregroundColor: Colors.white,
+                child: const Icon(Icons.add),
+                onPressed: () {
+                  showModalBottomSheet(
+                    context: context,
+                    shape: const RoundedRectangleBorder(
+                        borderRadius:
+                            BorderRadius.vertical(top: Radius.circular(20))),
+                    builder: (context) => SafeArea(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const SizedBox(height: 8),
+                          ListTile(
+                            leading: const Icon(Icons.person_add_rounded),
+                            title: Text('create_new_patient_profile'.tr()),
+                            onTap: () {
+                              Navigator.pop(context);
+                              widget.patientListKey.currentState
+                                  ?.showAddPatientDialog();
+                            },
+                          ),
+                          ListTile(
+                            leading: const Icon(Icons.groups_rounded),
+                            title: Text('create_new_group'.tr()),
+                            onTap: () {
+                              Navigator.pop(context);
+                              widget.patientListKey.currentState
+                                  ?.showCreateGroupDialog();
+                            },
+                          ),
+                          const SizedBox(height: 8),
+                        ],
+                      ),
+                    ),
+                  );
+                },
+              ),
       );
     }
 

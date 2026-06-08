@@ -187,6 +187,7 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
     int success = _verificationStats['success'] ?? 0;
     int suspicious = _verificationStats['suspicious'] ?? 0;
     int rejected = _verificationStats['rejected'] ?? 0;
+    int notDetected = _verificationStats['notDetected'] ?? 0;
     double avgScore = (_verificationStats['avgScore'] ?? 0).toDouble();
 
     if (total == 0) return _buildEmptyState();
@@ -197,14 +198,20 @@ class _ReportsScreenState extends State<ReportsScreen> with SingleTickerProvider
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Summary Cards
+          // Summary Cards (2x2 grid — 4 metrics would crowd a single Row)
           Row(
             children: [
               _buildVerificationCard('verified_label'.tr(), success, Colors.green, Icons.check_circle_rounded),
               const SizedBox(width: 10),
               _buildVerificationCard('suspicious_label'.tr(), suspicious, Colors.orange, Icons.warning_amber_rounded),
-              const SizedBox(width: 10),
+            ],
+          ),
+          const SizedBox(height: 10),
+          Row(
+            children: [
               _buildVerificationCard('rejected_label'.tr(), rejected, Colors.redAccent, Icons.cancel_rounded),
+              const SizedBox(width: 10),
+              _buildVerificationCard('not_detected_label'.tr(), notDetected, Colors.blueGrey, Icons.search_off_rounded),
             ],
           ),
           const SizedBox(height: 20),
