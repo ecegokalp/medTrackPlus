@@ -936,7 +936,7 @@ class _GroupDashboardScreenState extends State<GroupDashboardScreen> {
               _headerChip(
                   text: entry.value.first.medName,
                   color: AppColors.turquoise,
-                  icon: Icons.medication_rounded),
+                  imageAsset: 'assets/single_pill.png'),
               const SizedBox(width: 10),
               Expanded(
                 child: Text(
@@ -1082,7 +1082,10 @@ class _GroupDashboardScreenState extends State<GroupDashboardScreen> {
   // --- ORTAK PARÇALAR ---
 
   Widget _headerChip(
-      {required String text, required Color color, IconData? icon}) {
+      {required String text,
+      required Color color,
+      IconData? icon,
+      String? imageAsset}) {
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
       decoration: BoxDecoration(
@@ -1092,7 +1095,14 @@ class _GroupDashboardScreenState extends State<GroupDashboardScreen> {
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (icon != null) ...[
+          if (imageAsset != null) ...[
+            Image.asset(imageAsset,
+                width: 15,
+                height: 15,
+                color: color,
+                colorBlendMode: BlendMode.srcIn),
+            const SizedBox(width: 6),
+          ] else if (icon != null) ...[
             Icon(icon, size: 15, color: color),
             const SizedBox(width: 6),
           ],
