@@ -1,189 +1,380 @@
-# MedTrack - Smart Medicine Dispenser 💊
+# MedTrack Plus 💊
 
 <p align="center">
-  <img src="assets/icon.png" alt="MedTrack Logo" width="200"/>
+  <img src="assets/icon.png" alt="MedTrack Plus Logo" width="180"/>
 </p>
 
 <p align="center">
-  <strong>An IoT-enabled automatic medicine dispenser with mobile app control</strong>
+  <strong>AI-Enhanced Medication Verification & Device-Free Medication Management</strong>
 </p>
 
 <p align="center">
-  <a href="#features">Features</a> •
-  <a href="#architecture">Architecture</a> •
-  <a href="#hardware">Hardware</a> •
-  <a href="#installation">Installation</a> •
-  <a href="#usage">Usage</a> •
-  <a href="#api">API</a> •
-  <a href="#contributing">Contributing</a>
+  <a href="#-overview">Overview</a> •
+  <a href="#-features">Features</a> •
+  <a href="#-architecture">Architecture</a> •
+  <a href="#-verification-pipeline">Verification</a> •
+  <a href="#-device-free-mode">Device-Free Mode</a> •
+  <a href="#-hardware">Hardware</a> •
+  <a href="#-privacy--kvkk">Privacy</a> •
+  <a href="#-installation">Installation</a> •
+  <a href="#-team">Team</a>
+</p>
+
+<p align="center">
+  <img alt="Flutter" src="https://img.shields.io/badge/Flutter-3.8%2B-02569B?logo=flutter&logoColor=white">
+  <img alt="Firebase" src="https://img.shields.io/badge/Firebase-Serverless-FFCA28?logo=firebase&logoColor=black">
+  <img alt="ML Kit" src="https://img.shields.io/badge/Google%20ML%20Kit-On--Device-4285F4?logo=google&logoColor=white">
+  <img alt="ESP32-S3" src="https://img.shields.io/badge/ESP32--S3-Firmware-E7352C?logo=espressif&logoColor=white">
+  <img alt="SDG" src="https://img.shields.io/badge/SDG-3%20%26%209-26BDE2">
 </p>
 
 ---
 
 ## 📋 Overview
 
-MedTrack is a comprehensive IoT solution designed to help patients manage their medication schedules effectively. The system combines an ESP32-based hardware dispenser with a Flutter mobile application, all synchronized through Firebase cloud services.
+**MedTrack Plus** is the second development phase (FENG 498) of the Intelligent Medication
+Dispensing System originally designed and validated in **FENG 497**. The first phase reliably
+confirmed that medication had been *dispensed* from the device — but it could not confirm that
+the patient had actually *taken* it, and it required every user to own the physical dispenser.
+
+This phase closes both gaps:
+
+1. **Objective, reviewable evidence of intake** — an on-device computer-vision pipeline watches
+   the face, lips and pill in real time, scores each attempt, and routes only the *uncertain*
+   ones to a relative for review.
+2. **A complete Device-Free Mode** — the entire platform now works for anyone with a smartphone,
+   no hardware required, using virtual *patient profiles* in place of physical dispensers.
+
+The result is a **privacy-preserving, low-cost medication adherence platform that turns a
+reminder into verifiable evidence**, works with or without the dispenser, and runs entirely
+within the free tier of its cloud infrastructure.
 
 ### The Problem
 
-- **Medication non-adherence** affects up to 50% of patients with chronic diseases
-- Elderly patients often forget their medication schedules
-- Caregivers need remote monitoring capabilities
-- Manual pill organizers don't provide feedback or tracking
+- The WHO reports adherence to long-term therapy in chronic disease is **~50%** on average.
+- The FENG 497 prototype proved *dispensing*, but intake was only **self-reported** — unreliable
+  for patients with cognitive decline.
+- Commercial camera-based adherence platforms (e.g. AiCure) are **expensive, subscription-based
+  and cloud-dependent**, sending sensitive patient video off-device.
+- Users who could not afford the dispenser were excluded from the ecosystem entirely.
 
 ### Our Solution
 
-MedTrack provides:
-- ⏰ **Automated dispensing** at scheduled times
-- 📱 **Mobile app** for configuration and monitoring
-- 🔔 **Smart notifications** with full-screen alarms
-- 👨‍👩‍👧 **Multi-user support** for family/caregiver access
-- 📊 **Analytics dashboard** for adherence tracking
-- 🌐 **Offline operation** with local alarm storage
+MedTrack Plus brings **camera-based consumption verification** — previously a feature of
+expensive clinical platforms — to a low-cost system, with **on-device inference** so that, by
+default, no video ever leaves the phone. A caregiver is notified **only when an attempt is
+genuinely uncertain**, can watch a short auto-expiring clip, and records an informed decision.
+
+> 🌍 **Sustainable Development Goals:** SDG 3 (Good Health & Well-Being), SDG 9 (Industry,
+> Innovation & Infrastructure).
 
 ---
 
 ## ✨ Features
 
-### Mobile Application (Flutter)
+### 🤖 AI Intake Verification (new in Plus)
 
 | Feature | Description |
 |---------|-------------|
-| 🔐 **Google Sign-In** | Secure OAuth 2.0 authentication |
-| 📡 **BLE Provisioning** | Easy WiFi setup via Bluetooth |
-| ⚙️ **Medicine Configuration** | Set names, schedules, and stock counts |
-| 🔔 **Smart Alarms** | Full-screen notifications with snooze |
-| 👥 **Multi-User Roles** | Owner, Secondary, Read-Only access levels |
-| 📈 **Weekly Reports** | Adherence statistics and trends |
-| 🔊 **Remote Buzzer** | Find your device feature |
-| 🌍 **Localization** | Turkish and English support |
+| 👁️ **On-Device CV** | Google ML Kit detects face, lip contours, head pose and the pill — entirely on the phone |
+| 📏 **Pill-to-Lip Tracking** | Measures the normalized distance of the pill from the lips, frame by frame |
+| 🔄 **11-State Session** | A guided state machine walks the patient through face → mouth → pill → close → water → swallow |
+| 🎯 **Accuracy Scoring Engine** | Fuses six bounded signals into a single 0–1 confidence score |
+| 🚦 **Three-Way Classification** | Every attempt is classified **success / suspicious / rejected** |
+| 🎥 **Privacy-First Evidence** | Only *suspicious* attempts upload a short clip; videos auto-expire after 24 h |
+| 👨‍⚕️ **Human-in-the-Loop Review** | Relatives are notified of uncertain attempts and approve / deny with a recorded decision |
 
-### IoT Device (ESP32)
+### 🧑‍🤝‍🧑 Device-Free Mode (new in Plus)
 
 | Feature | Description |
 |---------|-------------|
-| 🔄 **3-Section Dispenser** | Three independent medicine compartments |
-| 📶 **WiFi Connectivity** | Real-time cloud synchronization |
-| 💾 **Offline Mode** | NVS storage for internet outages |
-| 🔊 **Audio Alerts** | Piezo buzzer melodies |
-| 🔁 **Auto-Sync** | 15-second polling interval |
-| 🔧 **Factory Reset** | Triple-press boot button |
+| 👤 **Virtual Patient Profiles** | Full platform without any hardware — same role hierarchy as devices |
+| 👥 **Multi-Patient Dashboards** | One caregiver can supervise several patients |
+| 💊 **Unlimited Medications** | No three-section limit; add as many medications as needed per patient |
+| 🗂️ **Drag-and-Drop Grouping** | Organize patients into named groups in an edit mode |
+| 🎛️ **Group Control Panel** | Bulk edit schedule, stock and name across a whole group, plus custom manual groupings |
+| 🖼️ **Editable Name & Photo** | Per-patient avatar and profile, per-patient reports |
+
+### 📱 Core Application
+
+| Feature | Description |
+|---------|-------------|
+| 🔐 **Google Sign-In** | Secure OAuth 2.0 authentication with silent session restore |
+| 📡 **BLE Provisioning** | Easy Wi-Fi setup over Bluetooth (device mode only) |
+| ⏰ **Full-Screen Alarms** | Exact alarms with snooze, optional pre-notification offset, lock-screen display |
+| 🔁 **Central Alarm Coordinator** | Schedules every device *and* patient on the phone at once |
+| 👥 **Role-Based Access** | Owner / Secondary / Read-Only for both devices and patients |
+| 📈 **Weekly Reports** | Dispensing activity + verification statistics with accuracy gauges |
+| 🌍 **Localization** | Full Turkish & English interface |
+
+### 🔧 IoT Device (ESP32-S3, redesigned)
+
+| Feature | Description |
+|---------|-------------|
+| 🎡 **4-Wheel Hold-and-Reveal** | Pills stay stationary; the wheel reveals the next dose — no free-fall jamming |
+| 🧲 **Hall-Effect Homing** | Neodymium magnets + SS49E sensors recalibrate each wheel's absolute position at boot |
+| 📡 **Ultrasonic Presence Sensor** | HC-SR04 gates dispensing on user approach and feeds the verification score |
+| 🔊 **Voice Feedback** | DFPlayer Mini + speaker for personalized MP3 prompts |
+| 💾 **Offline Mode** | NVS storage keeps operating through internet outages |
+| 🔋 **Battery Reserve** | 8 × 18650 pack (~9 days calculated) with charge + boost as outage backup |
 
 ---
 
 ## 🏗️ Architecture
 
-### System Overview
+MedTrack Plus is a **three-tier system**:
 
 ```
-┌─────────────────────────────────────────────────────────────────────────┐
-│                         SYSTEM ARCHITECTURE                              │
-└─────────────────────────────────────────────────────────────────────────┘
-
-     ┌──────────────┐                              ┌──────────────┐
-     │   User       │                              │    ESP32     │
-     │   (Mobile)   │                              │   Device     │
-     └──────┬───────┘                              └──────┬───────┘
-            │                                             │
-            │ Flutter App                                 │ WiFi
-            │                                             │
-            ▼                                             ▼
-     ┌──────────────┐         Sync (via App)      ┌──────────────┐
-     │  Firestore   │◄───────────────────────────►│    RTDB      │
-     │              │                              │              │
-     │ • Users      │                              │ • Config     │
-     │ • Dispensers │                              │ • Buzzer     │
-     │ • Logs       │                              │ • Logs       │
-     └──────────────┘                              └──────────────┘
-            │                                             │
-            └─────────────────┬───────────────────────────┘
-                              │
-                              ▼
-                    ┌──────────────────┐
-                    │ Firebase Auth    │
-                    │ (Google Sign-In) │
-                    └──────────────────┘
+┌──────────────────────────────────────────────────────────────────────────┐
+│  CLIENT TIER  ─  Flutter app (Android)                                     │
+│  Screens · Services · On-device CV pipeline · Alarm subsystem              │
+└───────────────┬──────────────────────────────────────────────────────────┘
+                │
+┌───────────────▼──────────────────────────────────────────────────────────┐
+│  SERVERLESS TIER  ─  Firebase                                              │
+│  Firestore (source of truth) · Realtime DB (low-latency device state)      │
+│  Cloud Functions (TypeScript) · Cloud Messaging (FCM) · Storage · Auth     │
+└───────────────┬──────────────────────────────────────────────────────────┘
+                │ Wi-Fi (polls RTDB)
+┌───────────────▼──────────────────────────────────────────────────────────┐
+│  EMBEDDED TIER  ─  ESP32-S3 firmware                                       │
+│  Reads config & commands, reports events, runs the 4-wheel mechanism       │
+└────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Dual Database Strategy
-
-We use **two Firebase databases** for optimal performance:
+### Dual-Database Strategy (retained from FENG 497)
 
 | Database | Purpose | Used By |
 |----------|---------|---------|
-| **Cloud Firestore** | User profiles, device configs, detailed logs | Mobile App |
-| **Realtime Database** | Real-time device sync, commands | ESP32 Device |
+| **Cloud Firestore** | User profiles, entity configs, verifications, logs — application source of truth | Mobile App |
+| **Realtime Database** | Low-latency device config, commands, presence, buzzer | ESP32 Device |
 
-**Why dual databases?**
-- ESP32 Firestore libraries are unstable and error-prone
-- RTDB provides ~200ms latency (vs ~500ms for Firestore)
-- Architectural separation between app and device layers
+**Why dual databases?** ESP32 Firestore libraries are unstable; RTDB gives ~200 ms latency vs.
+~500 ms for Firestore and cleanly separates the app layer from the device layer.
 
-### Data Flow
+### One Schema, Two Entities (entity polymorphism)
+
+The single most important design decision: **device mode and device-free mode share one code
+path.** A physical dispenser (`dispenser/{macAddress}`) and a virtual patient
+(`patients/{patient_<uuid>}`) mirror the same schema, and **every service resolves the correct
+collection from the identifier alone**:
 
 ```
-WRITE FLOW:
-App → Firestore → App (sync) → RTDB → ESP32
-
-READ FLOW:  
-ESP32 → RTDB → App (listener) → Firestore
-
-BLE FLOW (Provisioning only):
-Phone ←─BLE─→ ESP32 (WiFi credentials transfer)
+identifier starts with "patient_"  →  patients collection
+everything else                    →  dispenser collection
 ```
+
+Because of this, the **alarm, verification, review, reporting and notification** subsystems all
+serve both modes with no duplicated logic.
+
+---
+
+## 🎥 Verification Pipeline
+
+When an alarm is dismissed, a verification session opens and analyses the camera stream
+**entirely on the device**.
+
+```
+Camera frame → Frame throttler → ML Kit (face · mouth · pill)
+            → Pill-to-lip distance → 11-state session machine
+            → Accuracy scoring → classify → record (+ upload if suspicious)
+```
+
+### Scoring & Classification
+
+The engine fuses **six bounded signals** with explicit weights (the weight set adapts depending
+on whether the physical device is present):
+
+| Signal | Weight (with device) | Weight (device-free) |
+|--------|:--------------------:|:--------------------:|
+| Pill detection | 0.22 | 0.25 |
+| Lip closeness | 0.20 | 0.25 |
+| Mouth-open duration | 0.18 | 0.20 |
+| Pill-to-lip distance | 0.15 | 0.15 |
+| Timing | 0.15 | 0.15 |
+| Device presence | 0.10 | — |
+
+The final score is **anchored on detector-validated milestones**, so a numeric score can never
+contradict what the detector actually observed:
+
+| Detector outcome | Result | Score band | Video |
+|------------------|--------|:----------:|:-----:|
+| Swallow confirmed | ✅ **Success** | ≥ 0.80 | not uploaded |
+| Pill seen + drinking, swallow unconfirmed | ⚠️ **Suspicious** | 0.65 – 0.79 | uploaded for review |
+| Pill seen, no drinking yet | ⚠️ **Suspicious** | 0.40 – 0.60 | uploaded for review |
+| No stable pill | ❌ **Rejected** | ≤ 0.34 | not uploaded |
+
+### Performance
+
+- **~25–45 ms** measured per-frame cost against a **100 ms** budget on mid-range hardware.
+- **Phase-aware frame throttling** removes ~80% of detector invocations during idle phases
+  (skip factor 5 when idle, 2 in the critical window, 1 while actively tracking the pill).
+- Pill track smoothed over a rolling 10-frame window; last-seen region retained through brief
+  occlusions.
+
+### Recording Settings
+
+| Setting | Value | Reason |
+|---------|-------|--------|
+| Frame rate | 5 fps | Matches sustainable rate; small files |
+| Bitrate | 500 kbps | A typical session stays under ~1 MB |
+| Audio | off | Unnecessary; better for privacy & size |
+| Safety limit | 30 s | Guarantees a session always terminates |
+
+> When recording consent is **withheld**, the identical flow runs with a visible **20-second
+> stage watchdog** instead of a recording — a stalled session still records a `not_detected`
+> outcome so reports stay complete.
+
+---
+
+## 🧑‍🤝‍🧑 Device-Free Mode
+
+Device-free mode replaces physical dispensers with **virtual patient profiles** that carry the
+same owner / secondary / read-only hierarchy, an unlimited medications list, an editable name
+and photograph, and per-patient reports.
+
+- **Single-patient** dashboard or **multi-patient** list (selectable at onboarding, changeable
+  in settings).
+- **Patient grouping** by drag-and-drop in an edit mode.
+- **Group Control Panel** aggregates every medication of every group member and supports bulk
+  operations:
+  - **Time buckets** — change a shared dose time for all members at once.
+  - **Stock buckets** — update equal stock counts together.
+  - **Name buckets** — rename matching medications together.
+  - **Manual groupings** — user-defined groups by criterion (name / time / stock / other).
+- **Read-only entries** are dimmed, untouchable, and skipped by bulk operations (which report
+  how many were skipped).
 
 ---
 
 ## 🔧 Hardware
 
-### Components
+The dispenser was **redesigned** from the FENG 497 three-channel gravity-drop mechanism into a
+**four-wheel hold-and-reveal** architecture. In the old design the *pill* moved (fell) while the
+mechanism was static; in the new design the *mechanism* moves while the pill stays still until
+the user takes it from the window — so **jamming and double-dispensing have no mechanical path
+to occur**.
 
-| Component | Model | Quantity | Purpose |
-|-----------|-------|----------|---------|
-| Microcontroller | ESP32 DevKit V1 | 1 | Main processing unit |
-| Stepper Motor | 28BYJ-48 + ULN2003 | 3 | Pill dispensing mechanism |
-| Speaker | Piezo Buzzer 5V | 1 | Audio alerts |
-| Button | Tactile Switch | 1 | Factory reset (GPIO 0) |
+### Concept Comparison
 
-### Pin Configuration
+| Aspect | FENG 497 (drop) | MedTrack Plus (hold-and-reveal) |
+|--------|-----------------|----------------------------------|
+| Dispensing principle | Free fall through feed channel | Pill stays in compartment; wheel reveals it at a window |
+| Channels / wheels | 3 channels | 4 independent wheels |
+| Capacity | Channel-limited | 4 × 20 = **80 doses** |
+| Intake corroboration | None (self-report) | HC-SR04 presence + Hall homing + camera verification |
+| Measured / target error | 15.6% (45-trial test) | Failure modes structurally removed (target ~0%) |
+| Controls | Multiple buttons | Single multi-function button + mobile app |
 
-```cpp
-// Motor 1 (Section 0)
-#define MOTOR1_PIN1 26
-#define MOTOR1_PIN2 25
-#define MOTOR1_PIN3 17
-#define MOTOR1_PIN4 16
+### Main Components
 
-// Motor 2 (Section 1)
-#define MOTOR2_PIN1 27
-#define MOTOR2_PIN2 14
-#define MOTOR2_PIN3 4
-#define MOTOR2_PIN4 13
+| Component | Qty | Role |
+|-----------|:---:|------|
+| ESP32-S3-DevKitC-1 | 1 | Main controller; Wi-Fi 802.11 b/g/n, BLE 5.0 |
+| 28BYJ-48 stepper + ULN2003 driver | 4 | One per wheel; geared compartment rotation |
+| SS49E analog Hall sensor | 4 | Absolute home detection of each wheel |
+| N52 neodymium magnet (3 × 2 mm) | 4 | Home marker embedded in each wheel's blind compartment |
+| HC-SR04 ultrasonic sensor | 1 | User-presence gating + verification confidence |
+| DFPlayer Mini + 3 W speaker | 1 | Personalized MP3 voice feedback |
+| Tactile multi-function button | 1 | Confirm / wake / stock-status (short / long / double press) |
+| 8 × 18650 + TP4056 / DW01 / MT3608 | 1 set | Battery reserve with charging and 5 V boost |
+| 608ZZ bearings, M8 shafts | 4 sets | Wheel rotation on fixed shafts |
+| PETG / PLA+ printed structure | — | Wheels, platforms, tunnels and enclosure |
 
-// Motor 3 (Section 2)
-#define MOTOR3_PIN1 5
-#define MOTOR3_PIN2 23
-#define MOTOR3_PIN3 19
-#define MOTOR3_PIN4 18
+### Wheel Geometry
 
-// Buzzer
-#define BUZZER_PIN 2
-```
+| Parameter | Value |
+|-----------|-------|
+| Wheels | 4 (stacked, 42 mm vertical + 25 mm depth offset each) |
+| Outer diameter / thickness | 200 mm / 20 mm |
+| Compartments per wheel | 24 of 15° each (20 active + 4 blind) |
+| Total capacity | 80 doses (4 medications × 20 doses) |
+| Ring gear | Module 1.5, 130 teeth |
+| Enclosure | 270 × 440 × 220 mm; side-loading refill drawers |
 
-### 3D Model
-
-> 📦 STL files for the dispenser enclosure are available in the `/hardware/3d-models/` directory.
+> 🧲 Each wheel divides 360° into 24 compartments of exactly 15°; a Hall sensor reading the
+> embedded magnet of the blind home compartment recalibrates absolute position at every boot,
+> so cumulative step error never exceeds one indexing cycle.
 
 ---
 
-## 📱 Mobile App Screenshots
+## 🔐 Privacy & KVKK
 
-<p align="center">
-  <img src="docs/screenshots/home_screen.png" width="200" alt="Home Screen"/>
-  <img src="docs/screenshots/device_list.png" width="200" alt="Device List"/>
-  <img src="docs/screenshots/alarm_screen.png" width="200" alt="Alarm Screen"/>
-  <img src="docs/screenshots/reports.png" width="200" alt="Reports"/>
-</p>
+The project processes sensitive personal data (health-related schedules and, with consent, short
+videos of the patient), so it complies with **Turkey's Personal Data Protection Law No. 6698
+(KVKK)**, aligned in spirit with the GDPR:
+
+- **On-device inference** — all computer-vision analysis runs on the phone; no frame leaves the
+  device except consented review clips.
+- **Explicit consent (Art. 5/1)** — video recording is **disabled by default** and enabled only
+  after the user scrolls through and accepts the in-app consent text.
+- **Data minimization** — only *suspicious* attempts upload a clip.
+- **Storage limitation** — uploaded videos carry a **24-hour TTL** enforced by a scheduled Cloud
+  Function.
+- **Revocability** — consent can be withdrawn at any time from Settings.
+- **Access control** — uploads are restricted by Firebase Security Rules (authenticated users,
+  size & content-type limits); records follow the owner / secondary / read-only hierarchy.
+
+---
+
+## 📡 Data Model
+
+### Firestore — one schema, two entities
+
+```
+dispenser/{macAddress}  |  patients/{patient_<uuid>}
+   owner_mail, secondary_mails[], read_only_mails[]
+   device_name | patient_name
+   section_config[] (device) | medications[] (patient):
+       { name, isActive, pillCount, schedule: [{h, m}, ...] }
+   photo_url            (patients, optional)
+   last_verification    { timestamp, score, status }
+
+   verifications/{id}:
+       classification : 'success' | 'suspicious' | 'rejected'
+       accuracyScore  : 0.0 .. 1.0
+       subScores      : { pill, lip, mouth, pillToLip, timing, presence }
+       appMode        : 'device' | 'deviceFree'
+       sectionIndex, hasDevice, userId, highestPhase
+       footageUrl, failureReason?, review_decision?, timestamp
+
+   logs/{id}: type, section, userId, timestamp, ...
+
+users/{uid}:
+   email, displayName, photoURL, fcmTokens[]
+   owned_dispensers[], secondary_dispensers[], read_only_dispensers[]
+   owned_patients[],   secondary_patients[],   read_only_patients[]
+   device_groups[], patient_groups[], gcp_custom_groups{}
+   app_mode, multi_patient
+```
+
+### Realtime Database (device mode only)
+
+```
+dispensers/{macAddress}/
+   config/{section_0..n}: { name, isActive, pillCount, schedule[] }
+   buzzer, presence, verification_required
+   commands/dispense: { section, timestamp }
+   last_verification: { timestamp, score, status }
+   logs/{pushId}: { type, section, timestamp }
+```
+
+### Cloud Functions (TypeScript · Node.js 20 · europe-west1)
+
+| Function | Trigger | Purpose |
+|----------|---------|---------|
+| `onVerificationCreated` | Firestore create on `*/verifications/{id}` | Notify authorized relatives via FCM for *rejected* / *suspicious* outcomes; clean up invalid tokens |
+| `onReviewDecisionUpdate` | Firestore update on `*/verifications/{id}` | Notify the patient when a relative approves / denies |
+| `cleanupOldVideos` | Pub/Sub schedule (hourly) | Delete `videos/` and `footage/` files older than 24 h |
+| `onVideoUploaded` | Storage `onFinalize` | Audit log of uploads |
+
+> The two create/update handlers are deployed **twice each** — once for `dispenser/*` and once
+> for `patients/*` (six exports total: `onVerificationCreated` + `onPatientVerificationCreated`,
+> `onReviewDecisionUpdate` + `onPatientReviewDecisionUpdate`, `cleanupOldVideos`,
+> `onVideoUploaded`) — sharing one handler so both entity types behave identically.
+
+> Notification payloads carry the entity id and verification id, so a tap **deep-links directly
+> into the review screen** — even from a cold start.
 
 ---
 
@@ -191,91 +382,41 @@ Phone ←─BLE─→ ESP32 (WiFi credentials transfer)
 
 ### Prerequisites
 
-- Flutter SDK (3.0+)
-- Android Studio / Xcode
-- Firebase project with:
-  - Authentication (Google Sign-In enabled)
-  - Cloud Firestore
-  - Realtime Database
-- Arduino IDE or PlatformIO
-- ESP32 board support
+- Flutter SDK **3.8+**
+- Android Studio (build targets Android, compile SDK 36)
+- A Firebase project with **Authentication (Google), Cloud Firestore, Realtime Database, Cloud
+  Storage, Cloud Messaging, Cloud Functions**
+- (Device mode) Arduino IDE / PlatformIO with ESP32-S3 board support
 
-### Mobile App Setup
+### Mobile App
 
-1. **Clone the repository**
-   ```bash
-   git clone https://github.com/yourusername/medtrack.git
-   cd medtrack/mobile
-   ```
+```bash
+git clone https://github.com/efesrnn/medTrackPlus.git
+cd medTrackPlus
 
-2. **Configure Firebase**
-   ```bash
-   # Install FlutterFire CLI
-   dart pub global activate flutterfire_cli
-   
-   # Configure Firebase
-   flutterfire configure
-   ```
+# Configure Firebase (generates lib/firebase_options.dart)
+dart pub global activate flutterfire_cli
+flutterfire configure
 
-3. **Install dependencies**
-   ```bash
-   flutter pub get
-   ```
-
-4. **Run the app**
-   ```bash
-   flutter run
-   ```
-
-### ESP32 Firmware Setup
-
-1. **Open Arduino IDE** and install required libraries:
-   - `Firebase ESP32 Client` by Mobizt
-   - `AccelStepper`
-   - `ArduinoJson`
-   - `Preferences`
-
-2. **Configure credentials** in `config.h`:
-   ```cpp
-   #define FIREBASE_API_KEY "your-api-key"
-   #define FIREBASE_DATABASE_URL "your-database-url"
-   ```
-
-3. **Upload firmware** to ESP32
-
-### Firebase Security Rules
-
-**Firestore Rules:**
-```javascript
-rules_version = '2';
-service cloud.firestore {
-  match /databases/{database}/documents {
-    match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
-    }
-    match /dispenser/{deviceId} {
-      allow read: if request.auth != null;
-      allow write: if request.auth != null && 
-        (resource.data.owner_mail == request.auth.token.email ||
-         resource.data.secondary_mails.hasAny([request.auth.token.email]));
-    }
-  }
-}
+flutter pub get
+flutter run
 ```
 
-**Realtime Database Rules:**
-```json
-{
-  "rules": {
-    "dispensers": {
-      "$deviceId": {
-        ".read": true,
-        ".write": true
-      }
-    }
-  }
-}
+### Cloud Functions
+
+```bash
+cd functions
+npm install
+firebase deploy --only functions
 ```
+
+### ESP32-S3 Firmware (device mode)
+
+1. Install libraries: `Firebase ESP32 Client` (Mobizt), `AccelStepper`, `ArduinoJson`,
+   `Preferences`, `DFRobotDFPlayerMini`.
+2. Set your Firebase credentials in the firmware config.
+3. Wire the four 28BYJ-48 / ULN2003 motors, SS49E Hall sensors, HC-SR04 and DFPlayer Mini per
+   the firmware pin definitions, then flash the ESP32-S3.
 
 ---
 
@@ -283,228 +424,127 @@ service cloud.firestore {
 
 ### First-Time Setup
 
-1. **Power on the device** - LED will blink indicating BLE provisioning mode
-2. **Open MedTrack app** and sign in with Google
-3. **Tap "Add Device"** and scan for nearby devices
-4. **Select your dispenser** (named "MEDTRACK_PROTOTYPE")
-5. **Enter your WiFi credentials** - device will connect and register
+1. Sign in with Google.
+2. Choose your mode: **"Do you have a MedTrack Plus device?"**
+   - **Yes → Device Mode:** provision the dispenser over BLE (enter Wi-Fi credentials), then it
+     connects and registers.
+   - **No → Device-Free Mode:** pick single-patient or multi-patient, then create a profile.
 
-### Configuring Medications
+### Daily Flow
 
-1. Tap on your device from the home screen
-2. Tap on a section in the circular selector
-3. Enter:
-   - **Medicine name** (e.g., "Aspirin 100mg")
-   - **Pill count** (current stock)
-   - **Schedule times** (tap + to add times)
-4. Toggle the section **Active** and save
-
-### Understanding Alarms
-
-When an alarm triggers:
-1. **ESP32** rotates the motor to dispense the pill
-2. **ESP32** plays a buzzer melody
-3. **ESP32** logs the event to RTDB
-4. **Mobile app** shows full-screen alarm (if enabled)
-5. **User responds** "Yes" (took it) or "No" (didn't take it)
-6. If "No", stock is automatically refunded
+1. A full-screen alarm fires at each scheduled time (device mode also commands the hardware).
+2. Dismissing the alarm chains **one verification session per due medication**.
+3. The session guides the patient through six steps (face → mouth → pill → close → water →
+   swallow) and classifies the attempt.
+4. A relative is notified **only for suspicious / rejected** attempts, reviews the evidence, and
+   records approve / deny.
 
 ### Role-Based Access
 
 | Permission | Owner | Secondary | Read-Only |
-|------------|-------|-----------|-----------|
-| View device settings | ✅ | ✅ | ✅ |
-| Edit configuration | ✅ | ✅ | ❌ |
-| Update stock | ✅ | ✅ | ❌ |
-| Add/remove users | ✅ | ❌ | ❌ |
-| View reports | ✅ | ✅ | Conditional* |
-
-*Read-only users can view reports only if the owner enables feedback sharing.
-
----
-
-## 📡 API Reference
-
-### RTDB Structure
-
-```json
-{
-  "dispensers": {
-    "{MAC_ADDRESS}": {
-      "buzzer": false,
-      "debug_status": "ONLINE",
-      "presence": true,
-      "verification_required": false,
-      "last_verification": {
-        "timestamp": 1704357600,
-        "score": 0.95,
-        "status": "verified"
-      },
-      "config": {
-        "section_0": {
-          "name": "Aspirin 100mg",
-          "isActive": true,
-          "pillCount": 15,
-          "schedule": [
-            {"h": 8, "m": 0},
-            {"h": 20, "m": 0}
-          ]
-        },
-        "section_1": { ... },
-        "section_2": { ... }
-      },
-      "logs": {
-        "{pushId}": {
-          "type": "auto_dispense",
-          "section": 0,
-          "timestamp": 1704357600
-        }
-      }
-    }
-  }
-}
-```
-
-### Firestore Collections
-
-**users/{userId}**
-```json
-{
-  "email": "user@example.com",
-  "displayName": "John Doe",
-  "owned_dispensers": ["AA:BB:CC:DD:EE:FF"],
-  "secondary_dispensers": [],
-  "read_only_dispensers": [],
-  "device_groups": [
-    {"id": "123", "name": "Bedroom", "devices": ["AA:BB:CC:DD:EE:FF"]}
-  ]
-}
-```
-
-**dispenser/{macAddress}**
-```json
-{
-  "owner_mail": "owner@example.com",
-  "secondary_mails": ["helper@example.com"],
-  "read_only_mails": ["family@example.com"],
-  "device_name": "Mom's Dispenser",
-  "section_config": [...]
-}
-```
-
-### BLE Protocol
-
-| UUID | Type | Description |
-|------|------|-------------|
-| `4fafc201-1fb5-459e-8fcc-c5c9c331914b` | Service | Main BLE service |
-| `beb5483e-36e1-4688-b7f5-ea07361b26a8` | Characteristic | WiFi credential transfer |
-
-**Provisioning Payload:**
-```json
-{"s": "WiFi_SSID", "p": "WiFi_Password"}
-```
-
-**Response Values:**
-- `TRYING` - Attempting connection
-- `SUCCESS` - Connected successfully
-- `FAIL` - Connection failed
+|------------|:-----:|:---------:|:---------:|
+| View settings & reports | ✅ | ✅ | ✅ |
+| Edit configuration / stock | ✅ | ✅ | ❌ |
+| Add / remove users | ✅ | ❌ | ❌ |
+| Bulk group operations | ✅ | ✅ | ❌ (skipped) |
 
 ---
 
 ## 🧪 Testing
 
-### Unit Tests
 ```bash
-cd mobile
-flutter test
+flutter test            # automated unit tests (recording & clip-extraction logic)
 ```
 
-### Integration Tests
-```bash
-flutter test integration_test/
-```
-
-### Hardware Testing
-
-1. **Motor Test**: Each motor should rotate 90° (1024 steps)
-2. **Buzzer Test**: Melody should play on startup
-3. **WiFi Test**: Check serial monitor for connection status
-4. **NVS Test**: Power cycle and verify alarm persistence
+- **Unit tests** cover the recording ring buffer and clip selection without a camera, by
+  constructing frame buffers in memory.
+- **Component tests** validated the perception layer on real cameras (pill-shape robustness,
+  mouth-open detection, pose gating, per-frame latency, throttling behavior).
+- **System tests** exercised all three classifications, the consent-off watchdog, the refund
+  path, the notification deep link and the review decision flow on hardware. A **developer
+  mock-alarm tool** triggers the full alarm-to-verification chain on demand.
 
 ---
 
-## 🛠️ Troubleshooting
+## 💰 Cost (prototype, local market, April 2026)
 
-### Device won't connect to WiFi
-- Ensure 2.4GHz network (ESP32 doesn't support 5GHz)
-- Check password accuracy
-- Try factory reset (3x boot button press)
+| Category | Subtotal |
+|----------|---------:|
+| Mechanical (motors, bearings, shafts, PETG + PLA+ filament) | ~1,720 TL |
+| Electronic (ESP32-S3, battery + charge/boost, sensors, audio, etc.) | ~1,457 TL |
+| Accessories & 10% spares reserve | ~480 TL |
+| **Total** | **~3,660 TL** |
 
-### Alarms not triggering
-- Verify NTP time sync in serial monitor
-- Check if section is marked as "Active"
-- Ensure pillCount > 0
-
-### App not receiving updates
-- Check internet connection
-- Verify Firebase project configuration
-- Check Firestore security rules
-
-### BLE device not found
-- Ensure Bluetooth is enabled on phone
-- Check location permissions (required for BLE on Android)
-- Device must be in provisioning mode (no WiFi configured)
+> The software stack is entirely free/open tooling and operating cost is held at **zero** by
+> design — client-side aggregation, built-in chart widgets, suspicious-only uploads with a 24-h
+> TTL, and composite indexes keep everything within the **free Firebase tier**. An enclosure
+> optimized to the target dimensions, plus injection molding and a custom PCB at volume, are
+> expected to cut the per-unit cost by well over half.
 
 ---
 
-## 🗺️ Roadmap
+## 🗺️ Future Work
 
-- [ ] **v1.1** - iOS app release
-- [ ] **v1.2** - Voice assistant integration (Google Home / Alexa)
-- [ ] **v1.3** - Custom audio file support (DFPlayer Mini)
-- [ ] **v1.4** - Medication interaction warnings
-- [ ] **v2.0** - Cloud-based prescription management
-- [ ] **v2.1** - Healthcare provider dashboard
-
----
-
-
-### Code Style
-
-- **Flutter**: Follow [Effective Dart](https://dart.dev/guides/language/effective-dart)
-- **C++**: Use Arduino style guidelines
-- **Commits**: Use [Conventional Commits](https://www.conventionalcommits.org/)
+- 📊 **Calibrated scoring** — collect human-labelled sessions and learn the weights/bands (e.g.
+  logistic regression) to turn the score into a calibrated probability.
+- 🔬 **Custom pill model** — a small model trained on pill imagery to raise the pill signal;
+  swap the moving-average tracker for a Kalman filter behind the same interface.
+- 🆔 **Stable medication identifiers** — replace index-based identification; add reviewer
+  identity + timestamp for a full audit trail; queue review decisions offline.
+- 📈 **Scalable statistics** — windowed / paged / server-side aggregation as record volumes grow.
+- 🛠️ **Hardware trial campaign** — run the same statistically designed trials as FENG 497 on the
+  manufactured prototype; full-scale field pilot with elderly users.
+- 🍏 **iOS build** and voice-assistant integrations.
 
 ---
 
-## 📄 License
+## 🛠️ Tech Stack
 
-This project is licensed under the MIT License - see the [LICENSE (In progress...)](LICENSE) file for details.
+- **Mobile:** Dart / Flutter · Riverpod · easy_localization · camera · video_player · software
+  H.264 encoder · image_picker
+- **On-device ML:** Google ML Kit (face detection with contours, object detection, image labeling)
+- **Backend:** Firebase Auth · Cloud Firestore · Realtime Database · Cloud Storage · Cloud
+  Messaging · Cloud Functions (TypeScript / Node.js 20, europe-west1)
+- **Embedded:** Arduino-framework firmware on ESP32-S3 · AccelStepper · NTP · NVS · BLE provisioning
 
 ---
 
 ## 👥 Team
 
-| Name            | Role                         | Contact                                 |
-|-----------------|------------------------------|-----------------------------------------|
-| Efe Serin       | Mobile App Developer         | [@github](https://github.com/efesrnn)   |
-| Emirhan Köksal  | Mobile App Developer         | [@github](https://github.com/koksal100) |
-| Toprak Pusatlı  | Hardware Planning & Design   | |
-| Yağız Alp Şener | Hardware Planning & Design   | |
-| Doğa Lal ÇELİK  | Product Testing and Analysis | |
-| Buse ATABAY     | Product Testing and Analysis | |
+**FENG 498 — İzmir University of Economics, Faculty of Engineering, Computer Engineering**
+
+| Name | Student ID | Contact |
+|------|------------|---------|
+| Efe Serin | 20210602055 | [@efesrnn](https://github.com/efesrnn) |
+| Doğa Orhan | 20210602043 | |
+| İpek Sude Yavaş | 20210602064 | |
+| Ece Naz Gökalp | 20210602028 | |
+
+**Supervisor:** Kutluhan Erol
+
+### Acknowledgments
+
+- **Ülkü Defne Akın** — physical enclosure & dispensing-mechanism design
+- **Ersin Tütüncüoğlu** — adaptation for additive manufacturing & 3D-printed prototype production
+
+This work builds on the FENG 497 first phase of the MedTrack project.
+
 ---
 
-## 🙏 Acknowledgments
+## 🙏 Built With
 
-- [Firebase](https://firebase.google.com/) - Backend infrastructure
-- [Flutter](https://flutter.dev/) - Cross-platform framework
-- [AccelStepper](https://www.airspayce.com/mikem/arduino/AccelStepper/) - Motor control library
-- [Mobizt Firebase Library](https://github.com/mobizt/Firebase-ESP32) - ESP32 Firebase client
+- [Flutter](https://flutter.dev/) — cross-platform framework
+- [Firebase](https://firebase.google.com/) — serverless backend
+- [Google ML Kit](https://developers.google.com/ml-kit) — on-device perception
+- [AccelStepper](https://www.airspayce.com/mikem/arduino/AccelStepper/) — motor control
 
 ---
 
+## 📄 License
+
+Released under the MIT License (LICENSE — in progress). The team retains the design files for
+the 3D-printed mechanism.
 
 <p align="center">
-  <a href="https://github.com/koksal100/medTrackPlus/stargazers">⭐ Star us on GitHub!</a>
+  <a href="https://github.com/efesrnn/medTrackPlus/stargazers">⭐ Star us on GitHub!</a>
 </p>
