@@ -1,0 +1,17 @@
+{
+  "rules": {
+    "dispensers": {
+      ".read": true,
+      ".write": true,
+      "$mac": {
+        ".read": true,
+        ".write": true,
+        "dev": {
+          "logs": {
+            ".indexOn": "ts"
+          }
+        }
+      }
+    }
+  }
+}

@@ -4,6 +4,7 @@ import 'package:easy_localization/easy_localization.dart';
 import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
+import 'package:medTrackPlus/app/device_control_panel_screen.dart';
 import 'package:medTrackPlus/app/screens_registry.dart';
 import 'package:medTrackPlus/beta/beta_registry.dart';
 import 'package:medTrackPlus/main.dart';
@@ -167,6 +168,54 @@ class DeveloperScreen extends StatelessWidget {
               trailing: const Icon(Icons.play_arrow_rounded,
                   color: Color(0xFF36C0A6)),
               onTap: () => _triggerMockAlarm(context),
+            ),
+          ),
+
+          const SizedBox(height: 28),
+
+          // ── DEVICE HARDWARE ───────────────────────────────────────
+          _SectionHeader(
+            label: 'Device Hardware',
+            count: 1,
+            color: AppColors.skyBlue,
+            icon: Icons.settings_remote_rounded,
+          ),
+          const SizedBox(height: 12),
+          Container(
+            margin: const EdgeInsets.only(bottom: 10),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(14),
+              border: Border.all(color: AppColors.skyBlue.withOpacity(0.2)),
+            ),
+            child: ListTile(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+              leading: Container(
+                width: 42,
+                height: 42,
+                decoration: BoxDecoration(
+                  color: AppColors.skyBlue.withOpacity(0.1),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: const Icon(Icons.settings_remote_rounded,
+                    color: AppColors.skyBlue, size: 22),
+              ),
+              title: Text('Device Control Panel',
+                  style: GoogleFonts.inter(
+                      fontSize: 14,
+                      fontWeight: FontWeight.w700,
+                      color: AppColors.deepSea)),
+              subtitle: Text(
+                  'ESP32 motor/sensör/LED/ses elle kontrol + canlı telemetri',
+                  style: GoogleFonts.inter(
+                      fontSize: 12,
+                      color: AppColors.deepSea.withOpacity(0.5))),
+              trailing: const Icon(Icons.arrow_forward_ios_rounded,
+                  color: AppColors.skyBlue, size: 14),
+              onTap: () => Navigator.of(context).push(
+                MaterialPageRoute(
+                    builder: (_) => const DeviceControlPanelScreen()),
+              ),
             ),
           ),
 

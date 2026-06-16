@@ -232,8 +232,33 @@ class CloudVerificationService implements ICloudVerificationService {
   /// Lists all videos for a device, newest first.
   /// Returns list of {name, fullPath, downloadUrl, uploadedAt}.
   Future<List<Map<String, dynamic>>> listVideos(String deviceId) async {
+    final entries = await _listFolder('videos/$deviceId');
+    entries.sort((a, b) =>
+        (b['uploadedAt'] as String).compareTo(a['uploadedAt'] as String));
+    return entries;
+  }
+
+  /// Lists ALL recordings for an entity — merges `videos/{id}/` (normal
+  /// session recordings) and `footage/{id}/` (suspicious recordings).
+  ///
+  /// The relative review screen MUST use this instead of [listVideos]:
+  /// suspicious-classification sessions upload to `footage/`, so listing
+  /// only `videos/` made those recordings invisible to reviewers.
+  Future<List<Map<String, dynamic>>> listAllRecordings(String deviceId) async {
+    final results = await Future.wait([
+      _listFolder('videos/$deviceId'),
+      _listFolder('footage/$deviceId'),
+    ]);
+    final entries = [...results[0], ...results[1]];
+    // Newest first
+    entries.sort((a, b) =>
+        (b['uploadedAt'] as String).compareTo(a['uploadedAt'] as String));
+    return entries;
+  }
+
+  Future<List<Map<String, dynamic>>> _listFolder(String folder) async {
     try {
-      final result = await _storage.ref().child('videos/$deviceId').listAll();
+      final result = await _storage.ref().child(folder).listAll();
       final entries = <Map<String, dynamic>>[];
       for (final item in result.items) {
         try {
@@ -247,17 +272,15 @@ class CloudVerificationService implements ICloudVerificationService {
                 meta.timeCreated?.toIso8601String() ??
                 '',
             'sizeBytes': meta.size ?? 0,
+            'isFootage': folder.startsWith('footage/'),
           });
         } catch (e) {
-          debugPrint('[CloudVerificationService] listVideos item error: $e');
+          debugPrint('[CloudVerificationService] _listFolder item error: $e');
         }
       }
-      // Newest first
-      entries.sort((a, b) =>
-          (b['uploadedAt'] as String).compareTo(a['uploadedAt'] as String));
       return entries;
     } catch (e) {
-      debugPrint('[CloudVerificationService] listVideos error: $e');
+      debugPrint('[CloudVerificationService] _listFolder($folder) error: $e');
       return [];
     }
   }

@@ -77,7 +77,9 @@ class _RelativeReviewScreenState extends State<RelativeReviewScreen> {
       _listError = null;
     });
     try {
-      final list = await _cloud.listVideos(widget.macAddress);
+      // videos/ (normal kayıtlar) + footage/ (şüpheli kayıtlar) birleşik —
+      // yalnızca videos/ listelemek şüpheli oturum kayıtlarını gizliyordu.
+      final list = await _cloud.listAllRecordings(widget.macAddress);
       if (!mounted) return;
       setState(() {
         _videos = list;

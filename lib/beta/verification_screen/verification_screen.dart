@@ -1088,11 +1088,12 @@ class _VerificationScreenState extends State<VerificationScreen> {
     String? storagePath;
     String? uploadError;
 
-    // Only upload footage for suspicious classifications.
-    if (_consentEnabled &&
-        localPath != null &&
-        !_videoUploaded &&
-        classification == VerificationResult.suspicious) {
+    // Upload the session recording for ALL completed classifications when
+    // consent is ON: success → videos/{id}/ (normal review archive),
+    // suspicious/rejected → footage/{id}/ (priority review queue).
+    // NOTE: the previous suspicious-only gate left successful sessions with
+    // no recording at all, so relatives saw an empty review screen.
+    if (_consentEnabled && localPath != null && !_videoUploaded) {
       final nonNullPath = localPath;
       final localFile = File(nonNullPath);
       final localExists = await localFile.exists();
@@ -1118,15 +1119,25 @@ class _VerificationScreenState extends State<VerificationScreen> {
               setState(() => _uploadStatus = 'verif_upload_retrying'
                   .tr(args: [attempt.toString(), maxAttempts.toString()]));
             }
-            final upload = await _cloudService.uploadFootage(
-              deviceId: _deviceId,
-              localPath: pathToUpload,
-              onProgress: (p) {
-                if (!mounted) return;
-                setState(() =>
-                    _uploadProgress = (0.5 + p * 0.5).clamp(0.0, 1.0));
-              },
-            );
+            final upload = classification == VerificationResult.success
+                ? await _cloudService.uploadVideo(
+                    deviceId: _deviceId,
+                    localPath: pathToUpload,
+                    onProgress: (p) {
+                      if (!mounted) return;
+                      setState(() =>
+                          _uploadProgress = (0.5 + p * 0.5).clamp(0.0, 1.0));
+                    },
+                  )
+                : await _cloudService.uploadFootage(
+                    deviceId: _deviceId,
+                    localPath: pathToUpload,
+                    onProgress: (p) {
+                      if (!mounted) return;
+                      setState(() =>
+                          _uploadProgress = (0.5 + p * 0.5).clamp(0.0, 1.0));
+                    },
+                  );
             footageUrl = upload.downloadUrl;
             storagePath = upload.storagePath;
             _videoUploaded = true;

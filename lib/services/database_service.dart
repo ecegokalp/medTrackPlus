@@ -319,15 +319,30 @@ class DatabaseService {
       final start = startDate ?? now.subtract(const Duration(days: 7));
       final end = endDate ?? now;
 
-      // Firestore: detaylı verification geçmişi
-      final startStr = start.toUtc().toIso8601String();
-      final endStr = end.toUtc().toIso8601String();
+      // Firestore: detaylı verification geçmişi.
+      // NOT: timestamp alanı LOKAL saatle ISO string olarak yazılıyor
+      // (VerificationResult.toFirestore → DateTime.now().toIso8601String()).
+      // Eski kod UTC string ile lexicographic karşılaştırma yapıyordu; UTC+3
+      // bölgelerde son 3 saatin doğrulamaları pencere DIŞINDA kalıyor ve
+      // "az önce yaptığım doğrulama raporda yok" hatasına yol açıyordu.
+      // Düzeltme: her timestamp'i DateTime olarak parse edip UTC'de
+      // karşılaştır (Timestamp tipini de destekle).
+      final startUtc = start.toUtc();
+      final endUtc = end.toUtc();
       final allDocs = await _entityDoc(macAddress)
           .collection('verifications')
           .get();
       final query = allDocs.docs.where((doc) {
-        final ts = doc.data()['timestamp']?.toString() ?? '';
-        return ts.compareTo(startStr) >= 0 && ts.compareTo(endStr) <= 0;
+        final raw = doc.data()['timestamp'];
+        DateTime? ts;
+        if (raw is Timestamp) {
+          ts = raw.toDate();
+        } else if (raw != null) {
+          ts = DateTime.tryParse(raw.toString());
+        }
+        if (ts == null) return false;
+        final t = ts.toUtc();
+        return !t.isBefore(startUtc) && !t.isAfter(endUtc);
       }).toList();
 
       int total = 0, successCount = 0, suspiciousCount = 0, rejectedCount = 0;
@@ -917,5 +932,136 @@ class DatabaseService {
       List readOnly = data['read_only_dispensers'] ?? [];
       return owned.isNotEmpty || secondary.isNotEmpty || readOnly.isNotEmpty;
     } catch (e) { print("Cihaz kontrol hatası: $e"); return false; }
+  }
+
+  // ===========================================================================
+  // --- BÖLÜM: GELİŞTİRİCİ DONANIM KONTROLÜ (dev-only) ---
+  // ESP32 firmware ile paylaşılan protokol. Taban yol: dispensers/{MAC}/dev
+  // Bu metotlar yalnızca fiziksel cihaz (MAC) için anlamlıdır; hasta/
+  // device-free profillerde donanım yoktur, bu yüzden sessizce no-op olurlar.
+  // ===========================================================================
+
+  /// App → device: dispensers/$mac/dev/command alanına komut yazar.
+  /// cmd haritasına benzersiz bir 'id' (ms timestamp) enjekte edilir.
+  Future<void> sendDevCommand(String mac, Map<String, dynamic> cmd) async {
+    if (mac.isEmpty || isPatientId(mac)) return; // Donanım yok.
+    try {
+      final payload = Map<String, dynamic>.from(cmd);
+      payload['id'] = DateTime.now().millisecondsSinceEpoch;
+      await _rtdb.ref("dispensers/$mac/dev/command").set(payload);
+      print('[DatabaseService] dev command sent: $payload');
+    } catch (e) {
+      print('[DatabaseService] sendDevCommand error: $e');
+    }
+  }
+
+  Future<void> devMotorStep(String mac, int section, int steps) =>
+      sendDevCommand(mac, {'action': 'motor_step', 'section': section, 'steps': steps});
+
+  Future<void> devMotorSlot(String mac, int section, int slots) =>
+      sendDevCommand(mac, {'action': 'motor_slot', 'section': section, 'slots': slots});
+
+  Future<void> devHome(String mac, int section) =>
+      sendDevCommand(mac, {'action': 'home', 'section': section});
+
+  Future<void> devHomeAll(String mac) =>
+      sendDevCommand(mac, {'action': 'home_all'});
+
+  Future<void> devRefillSync(String mac, int section) =>
+      sendDevCommand(mac, {'action': 'refill_sync', 'section': section});
+
+  Future<void> devRefillSyncAll(String mac) =>
+      sendDevCommand(mac, {'action': 'refill_sync_all'});
+
+  Future<void> devDispense(String mac, int section) =>
+      sendDevCommand(mac, {'action': 'dispense', 'section': section});
+
+  Future<void> devSound(String mac, {int track = 1}) =>
+      sendDevCommand(mac, {'action': 'sound', 'track': track});
+
+  Future<void> devLed(String mac, int state) =>
+      sendDevCommand(mac, {'action': 'led', 'state': state});
+
+  Future<void> devStream(String mac, bool on) =>
+      sendDevCommand(mac, {'action': 'stream', 'on': on});
+
+  /// Device → app: telemetri akışı (~1/sn, stream açıkken).
+  /// Null/uyumsuz veriye karşı güvenli; her zaman bir Map döner.
+  Stream<Map<String, dynamic>> devTelemetryStream(String mac) {
+    if (mac.isEmpty || isPatientId(mac)) {
+      return const Stream<Map<String, dynamic>>.empty();
+    }
+    return _rtdb.ref("dispensers/$mac/dev/telemetry").onValue.map((event) {
+      final raw = event.snapshot.value;
+      if (raw is Map) {
+        try {
+          return Map<String, dynamic>.from(raw);
+        } catch (_) {
+          return <String, dynamic>{};
+        }
+      }
+      return <String, dynamic>{};
+    });
+  }
+
+  /// Device → app: her komuttan sonra yazılan ack.
+  Stream<Map<String, dynamic>?> devAckStream(String mac) {
+    if (mac.isEmpty || isPatientId(mac)) {
+      return const Stream<Map<String, dynamic>?>.empty();
+    }
+    return _rtdb.ref("dispensers/$mac/dev/ack").onValue.map((event) {
+      final raw = event.snapshot.value;
+      if (raw is Map) {
+        try {
+          return Map<String, dynamic>.from(raw);
+        } catch (_) {
+          return null;
+        }
+      }
+      return null;
+    });
+  }
+
+  /// Device → app: makine log satırları (en fazla son 120, ts'ye göre sıralı).
+  /// En yeni en üstte (ts azalan) olacak şekilde döner.
+  Stream<List<Map<String, dynamic>>> devLogsStream(String mac) {
+    if (mac.isEmpty || isPatientId(mac)) {
+      return const Stream<List<Map<String, dynamic>>>.empty();
+    }
+    return _rtdb
+        .ref("dispensers/$mac/dev/logs")
+        .orderByChild('ts')
+        .limitToLast(120)
+        .onValue
+        .map((event) {
+      final raw = event.snapshot.value;
+      final List<Map<String, dynamic>> out = [];
+      if (raw is Map) {
+        raw.forEach((_, v) {
+          if (v is Map) {
+            try {
+              out.add(Map<String, dynamic>.from(v));
+            } catch (_) {}
+          }
+        });
+      }
+      int tsOf(Map<String, dynamic> m) {
+        final t = m['ts'];
+        if (t is int) return t;
+        if (t is num) return t.toInt();
+        return int.tryParse(t?.toString() ?? '') ?? 0;
+      }
+      out.sort((a, b) => tsOf(b).compareTo(tsOf(a))); // en yeni en üstte
+      return out;
+    });
+  }
+
+  Future<void> clearDevLogs(String mac) async {
+    if (mac.isEmpty || isPatientId(mac)) return;
+    try {
+      await _rtdb.ref("dispensers/$mac/dev/logs").remove();
+    } catch (e) {
+      print('[DatabaseService] clearDevLogs error: $e');
+    }
   }
 }

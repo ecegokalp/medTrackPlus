@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:medTrackPlus/beta/camera_test/camera_test_screen.dart';
 import 'package:medTrackPlus/beta/camera_test/unified_test_screen.dart';
 import 'package:medTrackPlus/beta/cv/cv_test_screen.dart';
+import 'package:medTrackPlus/beta/cv_v2/cv_v2_lab_screen.dart';
 import 'package:medTrackPlus/beta/mlkit_test/mlkit_test_screen.dart';
 import 'package:medTrackPlus/beta/mlkit_test/pill_detection_test_screen.dart';
 import 'package:medTrackPlus/beta/mode_selection_screen.dart';
@@ -64,6 +65,16 @@ class BetaRegistry {
       name: 'Unified Detection Test',
       description: 'ML Kit detection + video recording + upload (birlesik)',
       builder: (_) => const UnifiedTestScreen(),
+    ),
+
+    // -- V2 EXPERIMENTAL: improved accuracy pipeline (does NOT touch prod) --
+    BetaScreen(
+      name: 'CV v2 Accuracy Lab',
+      description:
+          'V2 pipeline testi: rotasyon fix + adaptif eşik + chroma + blob. '
+          'Canlı ratio/accuracy HUD, açı sınır uyarıları, yutma doğrulama, '
+          'video kayıt + upload, eşik slider\'ları',
+      builder: (_) => const CvV2LabScreen(),
     ),
 
     // -- CV pipeline benchmark --

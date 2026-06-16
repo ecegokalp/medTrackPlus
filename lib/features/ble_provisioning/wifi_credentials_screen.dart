@@ -35,6 +35,10 @@ class _WifiCredentialsScreenState extends State<WifiCredentialsScreen> {
   final String SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b";
   final String CHAR_UUID = "beb5483e-36e1-4688-b7f5-ea07361b26a8";
 
+  // ESP32'nin BLE ile bildirdiği GERÇEK WiFi MAC (SUCCESS|MAC). Chip bağımsız,
+  // BT MAC'ten hesaplamaya göre çok daha güvenilir.
+  String? _deviceReportedMac;
+
   @override
   void dispose() {
     _ssidController.dispose();
@@ -76,7 +80,14 @@ class _WifiCredentialsScreenState extends State<WifiCredentialsScreen> {
         }
       }
 
-      // 3. Hesaplanan doğru "WiFi MAC" adresini veritabanına kaydet
+      // 3. Cihaz BLE ile GERÇEK WiFi MAC'ini bildirdiyse ONU kullan
+      //    (en doğru, chip bağımsız). Yoksa BT MAC'ten hesaplanana düş.
+      if (_deviceReportedMac != null && _deviceReportedMac!.contains(':')) {
+        finalMacAddress = _deviceReportedMac!;
+        debugPrint("Cihazın bildirdiği WiFi MAC kullanılıyor: $finalMacAddress");
+      }
+
+      // 4. Doğru "WiFi MAC" adresini veritabanına kaydet
       final db = DatabaseService();
       await db.addDeviceManually(user.uid, user.email!, finalMacAddress);
     }
@@ -145,6 +156,14 @@ class _WifiCredentialsScreenState extends State<WifiCredentialsScreen> {
         debugPrint("ESP32 Response: $response");
 
         if (response.startsWith("SUCCESS")) {
+          // Cihaz "SUCCESS|<WiFiMAC>" gönderir; gerçek MAC'i buradan al (chip bağımsız).
+          if (response.contains("|")) {
+            final parts = response.split("|");
+            if (parts.length > 1 && parts[1].contains(":")) {
+              _deviceReportedMac = parts[1].trim().toUpperCase();
+              debugPrint("CIHAZIN BILDIRDIGI WIFI MAC: $_deviceReportedMac");
+            }
+          }
           if (!responseCompleter.isCompleted) responseCompleter.complete("SUCCESS");
         } else if (response == "FAIL") {
           if (!responseCompleter.isCompleted) responseCompleter.complete("FAIL");
