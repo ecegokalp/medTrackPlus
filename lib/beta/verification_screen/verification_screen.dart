@@ -11,6 +11,9 @@ import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:google_mlkit_face_detection/google_mlkit_face_detection.dart';
+import 'package:medTrackPlus/beta/cv_v2/cv_v2_config.dart';
+import 'package:medTrackPlus/beta/cv_v2/cv_v2_metrics.dart';
+import 'package:medTrackPlus/beta/cv_v2/mlkit_cv_processor_v2.dart';
 import 'package:medTrackPlus/beta/enums/app_mode.dart';
 import 'package:medTrackPlus/beta/mlkit_test/pill_detection_service.dart';
 import 'package:medTrackPlus/beta/mlkit_test/pill_painter.dart';
@@ -51,7 +54,13 @@ class _VerificationScreenState extends State<VerificationScreen> {
   InputImageRotation _rotation = InputImageRotation.rotation0deg;
   bool _torchOn = false;
 
-  final PillOnTongueService _service = PillOnTongueService();
+  // V2 CV pipeline — the SAME building blocks the CV v2 Accuracy Lab uses
+  // (mlkit_cv_processor_v2 + the v2 face/pill detectors + cv_v2_metrics).
+  // This replaces the older PillOnTongueService for per-frame detection AND
+  // final scoring. The UI still consumes a PillOnTongueResult (built from the
+  // v2 output in _toUiResult), so the camera card / painter are unchanged.
+  final CvV2Config _cvConfig = CvV2Config();
+  MLKitCVProcessorV2? _processor;
   PillOnTongueResult _lastResult = PillOnTongueResult.empty();
   Size _imageSize = const Size(480, 640);
   bool _isProcessing = false;
@@ -149,6 +158,13 @@ class _VerificationScreenState extends State<VerificationScreen> {
   final AccuracyScoringEngine _scoringEngine = AccuracyScoringEngine();
   final DatabaseService _dbService = DatabaseService();
   bool _devicePresent = false;
+  // Distance-scaled presence in 0..1 for DEVICE mode (the 20% component).
+  // Derived from the ultrasonic distance_cm: 0cm → 1.0, >= _maxPresenceCm → 0.
+  // Falls back to the boolean presence (present → 1.0) when no distance read
+  // is available. Always 0 for DEVICE-FREE (patient_) ids — no hardware.
+  double _presenceScore = 0.0;
+  // Distance (cm) mapped to the full 20% at 0cm and to 0 at this far.
+  static const double _maxPresenceCm = 45.0;
 
   AppMode get _appMode => widget.modeOverride ?? modeProvider.value;
   String get _deviceId =>
@@ -164,11 +180,24 @@ class _VerificationScreenState extends State<VerificationScreen> {
 
   Future<void> _bootstrap() async {
     _consentEnabled = await ConsentService.isVideoConsentEnabled();
-    if (_appMode == AppMode.device && widget.macAddress != null) {
+    // DEVICE mode (real hardware, MAC id): read presence + ultrasonic
+    // distance so the 20% distance/presence component can scale with how
+    // close the user is. DEVICE-FREE mode (patient_ id) has no hardware — the
+    // getters short-circuit to false/null there and _presenceScore stays 0.
+    final mac = widget.macAddress;
+    if (_appMode == AppMode.device &&
+        mac != null &&
+        !DatabaseService.isPatientId(mac)) {
       try {
-        _devicePresent = await _dbService.getPresence(widget.macAddress!);
+        _devicePresent = await _dbService.getPresence(mac);
       } catch (_) {
         _devicePresent = false;
+      }
+      try {
+        final distanceCm = await _dbService.getDistanceCm(mac);
+        _presenceScore = _scorePresenceFromDistance(distanceCm, _devicePresent);
+      } catch (_) {
+        _presenceScore = _devicePresent ? 1.0 : 0.0;
       }
     }
     final status = await Permission.camera.request();
@@ -177,6 +206,19 @@ class _VerificationScreenState extends State<VerificationScreen> {
       return;
     }
     await _initCamera();
+  }
+
+  /// Maps an ultrasonic distance reading (cm) to the 0..1 presence/distance
+  /// score that feeds the DEVICE-mode 20% component. Close (0cm) → 1.0,
+  /// [_maxPresenceCm] or farther → 0.0, linear in between. When no distance is
+  /// available we fall back to the boolean presence (present → 1.0, else 0).
+  double _scorePresenceFromDistance(double? distanceCm, bool present) {
+    if (distanceCm == null || distanceCm.isNaN) {
+      return present ? 1.0 : 0.0;
+    }
+    if (distanceCm <= 0) return present ? 1.0 : 0.0;
+    final scaled = 1.0 - (distanceCm / _maxPresenceCm);
+    return scaled.clamp(0.0, 1.0);
   }
 
   Future<void> _initCamera() async {
@@ -204,6 +246,11 @@ class _VerificationScreenState extends State<VerificationScreen> {
           _rotation = InputImageRotationValue.fromRawValue(
                   camera.sensorOrientation) ??
               InputImageRotation.rotation0deg;
+          // (Re)build the v2 processor for this camera's rotation. Reuses the
+          // exact processor the CV v2 lab drives — no logic duplicated here.
+          _processor?.dispose();
+          _processor =
+              MLKitCVProcessorV2(rotation: _rotation, config: _cvConfig);
           if (mounted) setState(() => _isCameraInitialized = true);
           await _controller!.startImageStream(_onFrame);
           return;
@@ -216,90 +263,75 @@ class _VerificationScreenState extends State<VerificationScreen> {
     }
   }
 
-  /// Maps the verification flow's current phase to a skip factor: 1 means
-  /// process every frame, N means every Nth frame. Decision is based on the
-  /// LAST result we observed (so the very first frame after a phase
-  /// transition may still use the previous skip — acceptable).
-  int _skipForPhase(DetectionPhase phase, bool isTracking) {
-    switch (phase) {
-      // pillDetected — pill confirmed in mouth.
-      case DetectionPhase.pillOnTongue:
-      case DetectionPhase.mouthClosedWithPill:
-        return 2;
-      // mouthCheckPrompt — drink / reopen / swallow verification window.
-      case DetectionPhase.drinking:
-      case DetectionPhase.mouthReopened:
-      case DetectionPhase.swallowConfirmed:
-      case DetectionPhase.swallowFailed:
-      case DetectionPhase.timeoutExpired:
-        return 2;
-      // trackingToLip — mouth is open AND service is building the stability
-      // buffer (consecutivePillFrames > 0). Every frame matters for smoothing.
-      case DetectionPhase.mouthOpen:
-        return isTracking ? 1 : 5;
-      // waitingForPill — no useful signal yet.
-      case DetectionPhase.noFace:
-      case DetectionPhase.faceDetected:
-        return 5;
-    }
-  }
-
   Future<void> _onFrame(CameraImage image) async {
     if (_completed) return;
     _phaseFrameTick++;
 
-    final skipFactor = _skipForPhase(_lastResult.phase, _service.isTracking);
-    final shouldDetect = !_isProcessing && (_phaseFrameTick % skipFactor == 0);
+    final processor = _processor;
+    final shouldDetect = !_isProcessing && processor != null;
 
     if (shouldDetect) {
       _isProcessing = true;
       final sw = Stopwatch()..start();
       try {
-        final inputImage = _buildInputImage(image);
-        if (inputImage != null) {
-          final result = await _service.processFrame(image, inputImage);
-          sw.stop();
-          _profiler.recordProcessed(sw.elapsedMicroseconds, skipFactor);
-          _frameCount++;
-          _lastFrameTime = DateTime.now();
-          if (result.face != null) _facePresentFrames++;
-          switch (result.phase) {
-            case DetectionPhase.mouthOpen:
-            case DetectionPhase.pillOnTongue:
-            case DetectionPhase.mouthClosedWithPill:
-            case DetectionPhase.drinking:
-            case DetectionPhase.mouthReopened:
-              _mouthOpenFrames++;
-              break;
-            default:
-              break;
-          }
-          if (result.phase == DetectionPhase.pillOnTongue ||
-              result.phase == DetectionPhase.mouthClosedWithPill) {
-            _pillOnTongueFrames++;
-          }
-          if (result.phase.index > _highestPhaseReached.index) {
-            debugPrint(
-                '[VerificationScreen] phase: ${_highestPhaseReached.name} → ${result.phase.name} '
-                '(frame=$_frameCount, face=$_facePresentFrames, pill=$_pillOnTongueFrames, '
-                'pillToLip=${result.pillToLipDistance?.toStringAsFixed(3) ?? "n/a"}, '
-                'mouthRatio=${result.mouthOpenRatio.toStringAsFixed(3)})');
-            _highestPhaseReached = result.phase;
-          }
-          if (result.phase == DetectionPhase.drinking ||
-              result.phase == DetectionPhase.mouthReopened) {
-            _drinkReached = true;
+        // The v2 processor owns its own per-phase + latency-adaptive
+        // throttling, so we call it on every frame and it returns a cached
+        // result (fromCache == true) when it decides to skip — exactly like
+        // the CV v2 lab drives it.
+        final out = await processor.processFrame(image);
+        sw.stop();
+        if (out != null) {
+          final result = _toUiResult(out.result);
+
+          // Only count / record genuinely processed frames (not cache hits)
+          // toward the stats and the CVFrameData buffer the scoring uses.
+          if (!out.fromCache) {
+            _profiler.recordProcessed(sw.elapsedMicroseconds, 1);
+            _frameCount++;
+            _lastFrameTime = DateTime.now();
+            if (result.face != null) _facePresentFrames++;
+            switch (result.phase) {
+              case DetectionPhase.mouthOpen:
+              case DetectionPhase.pillOnTongue:
+              case DetectionPhase.mouthClosedWithPill:
+              case DetectionPhase.drinking:
+              case DetectionPhase.mouthReopened:
+                _mouthOpenFrames++;
+                break;
+              default:
+                break;
+            }
+            if (result.phase == DetectionPhase.pillOnTongue ||
+                result.phase == DetectionPhase.mouthClosedWithPill) {
+              _pillOnTongueFrames++;
+            }
+            if (result.phase.index > _highestPhaseReached.index) {
+              debugPrint(
+                  '[VerificationScreen] phase: ${_highestPhaseReached.name} → ${result.phase.name} '
+                  '(frame=$_frameCount, face=$_facePresentFrames, pill=$_pillOnTongueFrames, '
+                  'pillToLip=${result.pillToLipDistance?.toStringAsFixed(3) ?? "n/a"}, '
+                  'mouthRatio=${result.mouthOpenRatio.toStringAsFixed(3)})');
+              _highestPhaseReached = result.phase;
+            }
+            if (result.phase == DetectionPhase.drinking ||
+                result.phase == DetectionPhase.mouthReopened) {
+              _drinkReached = true;
+            }
+
+            // Feed the EXACT CVFrameData the v2 processor produced into the
+            // scoring buffer (same data the lab scores from).
+            _cvFrames.add(out.frameData);
+
+            if (result.pillToLipDistance != null) {
+              _pillToLipSamples++;
+              _avgPillToLipDistance +=
+                  (result.pillToLipDistance! - _avgPillToLipDistance) /
+                      _pillToLipSamples;
+            }
+          } else {
+            _profiler.recordSkipped();
           }
 
-          final cvFrame = CVFrameData.fromPillResult(result);
-          _cvFrames.add(cvFrame);
-
-          if (result.pillToLipDistance != null) {
-            _pillToLipSamples++;
-            _avgPillToLipDistance +=
-                (result.pillToLipDistance! - _avgPillToLipDistance) /
-                    _pillToLipSamples;
-          }
           // Trigger recording the moment the user opens their mouth — so the
           // entire interaction (pill placement → consumption → swallow) is
           // captured on video for the relative reviewer.
@@ -377,6 +409,28 @@ class _VerificationScreenState extends State<VerificationScreen> {
         }
       }
     }
+  }
+
+  /// Adapts the rich v2 [PillResultV2] into the [PillOnTongueResult] the
+  /// existing camera card / [PillPainter] already render. This keeps the UI
+  /// (overlays, phase labels, distance readout) byte-for-byte identical while
+  /// the detection underneath is now driven by the cv_v2 pipeline.
+  PillOnTongueResult _toUiResult(PillResultV2 v2) {
+    final m = v2.metrics;
+    return PillOnTongueResult(
+      phase: v2.phase,
+      face: v2.face,
+      mouthOpenRatio: m.mouthRatioRaw,
+      mouthRegion: v2.mouthRegion,
+      pillConfidence: m.pillConfidenceEma,
+      guidance: v2.guidance,
+      timestamp: v2.timestamp,
+      smoothedPillRegion: v2.smoothedPillRegion,
+      lastSeenPillRegion: v2.lastSeenPillRegion,
+      detectedDrinkLabel: m.drinkLabel,
+      pillToLipDistance: m.pillToLipDistance,
+      isFaceFrontal: !m.yawExceeded && !m.pitchExceeded,
+    );
   }
 
   /// NV21 → RGBA conversion + append to encoder. Runs ~10 Hz.
@@ -555,22 +609,6 @@ class _VerificationScreenState extends State<VerificationScreen> {
       }
     }
     return dst;
-  }
-
-  InputImage? _buildInputImage(CameraImage image) {
-    final controller = _controller;
-    if (controller == null) return null;
-    if (image.format.group != ImageFormatGroup.nv21) return null;
-    if (image.planes.isEmpty) return null;
-    return InputImage.fromBytes(
-      bytes: image.planes.first.bytes,
-      metadata: InputImageMetadata(
-        size: Size(image.width.toDouble(), image.height.toDouble()),
-        rotation: _rotation,
-        format: InputImageFormat.nv21,
-        bytesPerRow: image.planes.first.bytesPerRow,
-      ),
-    );
   }
 
   // Concurrent strategy: image stream and video recording run in parallel.
@@ -999,7 +1037,8 @@ class _VerificationScreenState extends State<VerificationScreen> {
     _cvFrames.clear();
     _avgPillToLipDistance = 0.0;
     _pillToLipSamples = 0;
-    _service.reset();
+    _phaseFrameTick = 0;
+    _processor?.reset();
     if (mounted) {
       setState(() {
         _statusMessage = 'verif_try_again'.tr();
@@ -1182,6 +1221,10 @@ class _VerificationScreenState extends State<VerificationScreen> {
           ? _scoringEngine.calculateTimingScore(
               widget.scheduledAlarmTime, DateTime.now())
           : 0.2;
+      // Distance/presence component actually used for scoring: the 0..1
+      // distance-scaled value in DEVICE mode, 0 in DEVICE-FREE mode.
+      final presenceForLog =
+          _scoringMode == ScoringMode.withDevice ? _presenceScore : 0.0;
       final Map<String, double> subScores;
       if (_cvFrames.isNotEmpty) {
         final cvSub = _scoringEngine.calculateSubScores(
@@ -1190,7 +1233,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
         );
         subScores = {
           ...cvSub,
-          'presence': _devicePresent ? 1.0 : 0.0,
+          'presence': presenceForLog,
           'timing': timingScore,
           'detectionConfirmed': detectionConfirmed ? 1.0 : 0.0,
           'userConfirmed': userConfirmed ? 1.0 : 0.0,
@@ -1202,7 +1245,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
           'pill': _facePresentFrames == 0 ? 0.0 : _pillOnTongueFrames / _facePresentFrames,
           'lip': _frameCount == 0 ? 0.0 : _facePresentFrames / _frameCount,
           'mouth': _facePresentFrames == 0 ? 0.0 : _mouthOpenFrames / _facePresentFrames,
-          'presence': _devicePresent ? 1.0 : 0.0,
+          'presence': presenceForLog,
           'timing': timingScore,
           'detectionConfirmed': detectionConfirmed ? 1.0 : 0.0,
           'userConfirmed': userConfirmed ? 1.0 : 0.0,
@@ -1478,14 +1521,30 @@ class _VerificationScreenState extends State<VerificationScreen> {
     );
   }
 
+  /// Picks the scoring mode from the entity id: patient_* ids are device-free
+  /// (pure vision, no distance component); everything else is a real device
+  /// (MAC) and gets the 20% distance/presence weight. Falls back to AppMode
+  /// when no entity id is supplied.
+  ScoringMode get _scoringMode {
+    final mac = widget.macAddress;
+    if (mac != null && mac.isNotEmpty) {
+      return DatabaseService.isPatientId(mac)
+          ? ScoringMode.deviceFree
+          : ScoringMode.withDevice;
+    }
+    return _appMode == AppMode.device
+        ? ScoringMode.withDevice
+        : ScoringMode.deviceFree;
+  }
+
   double _computeScore({required bool detectionConfirmed}) {
     if (_frameCount == 0) return 0.0;
 
-    final mode = _appMode == AppMode.device
-        ? ScoringMode.withDevice
-        : ScoringMode.deviceFree;
+    final mode = _scoringMode;
+    // DEVICE mode: 20% scales with the ultrasonic distance (closer → 1.0).
+    // DEVICE-FREE mode: no distance component at all (presence stays 0).
     final presenceScore =
-        (mode == ScoringMode.withDevice && _devicePresent) ? 1.0 : 0.0;
+        mode == ScoringMode.withDevice ? _presenceScore : 0.0;
     final timingScore = detectionConfirmed
         ? _scoringEngine.calculateTimingScore(
             widget.scheduledAlarmTime, DateTime.now())
@@ -1710,7 +1769,11 @@ class _VerificationScreenState extends State<VerificationScreen> {
               onPressed: (_completed || blocking)
                   ? null
                   : () {
-                      _service.reset();
+                      _processor?.reset();
+                      _cvFrames.clear();
+                      _avgPillToLipDistance = 0.0;
+                      _pillToLipSamples = 0;
+                      _phaseFrameTick = 0;
                       _cancelStageWatchdog();
                       setState(() {
                         _lastResult = PillOnTongueResult.empty();
@@ -1821,7 +1884,7 @@ class _VerificationScreenState extends State<VerificationScreen> {
       _controller?.stopImageStream().catchError((_) {});
     }
     _controller?.dispose();
-    _service.dispose();
+    _processor?.dispose();
     super.dispose();
   }
 }

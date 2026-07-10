@@ -601,6 +601,26 @@ class DatabaseService {
     return false;
   }
 
+  /// Reads the latest ultrasonic distance (cm) the firmware publishes under
+  /// `dispensers/{mac}/dev/telemetry` (`distance_cm`). Returns null when no
+  /// reading is available (no device, no telemetry, or non-numeric value).
+  Future<double?> getDistanceCm(String macAddress) async {
+    if (macAddress.isEmpty || isPatientId(macAddress)) return null;
+    try {
+      final snapshot =
+          await _rtdb.ref("dispensers/$macAddress/dev/telemetry").get();
+      if (snapshot.exists && snapshot.value is Map) {
+        final raw = (snapshot.value as Map)['distance_cm'];
+        if (raw is num) return raw.toDouble();
+        final parsed = double.tryParse(raw?.toString() ?? '');
+        if (parsed != null) return parsed;
+      }
+    } catch (e) {
+      print('Distance read error: $e');
+    }
+    return null;
+  }
+
   Future<void> setVerificationRequired(String macAddress, bool required) async {
     if (macAddress.isEmpty || isPatientId(macAddress)) return;
     try {

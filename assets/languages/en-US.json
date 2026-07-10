@@ -257,6 +257,7 @@
   "recent_recordings": "Recent Recordings",
   "selected_verification": "Selected Verification",
   "device_prefix": "Device: {}",
+  "patient_prefix": "Patient: {}",
   "video_count_found": "{} video recording(s) found",
   "no_videos_yet": "No Videos Yet",
   "no_videos_desc": "There are no video verification recordings for this device yet.",

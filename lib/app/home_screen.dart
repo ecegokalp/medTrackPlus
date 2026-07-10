@@ -7,6 +7,7 @@ import 'package:medTrackPlus/services/notification_service.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import 'package:google_fonts/google_fonts.dart';
 import 'package:medTrackPlus/widgets/circular_selector.dart';
 import 'package:medTrackPlus/services/database_service.dart';
 import 'package:medTrackPlus/main.dart';
@@ -170,7 +171,7 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
 
     if (!data.containsKey('section_config')) {
       if (mounted) {
-        final defaultSections = List.generate(3, (index) => {
+        final defaultSections = List.generate(4, (index) => {
           'name': 'medicine_default_name'.tr(args: [(index + 1).toString()]),
           'times': [const TimeOfDay(hour: 8, minute: 0)],
           'isActive': true,
@@ -437,6 +438,10 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
               _buildDeviceNameSection(isReadOnly),
               const SizedBox(height: 25),
               if (!isReadOnly) _buildBuzzerButton(),
+              if (!DatabaseService.isPatientId(widget.macAddress) && !isReadOnly) ...[
+                const SizedBox(height: 25),
+                _buildWheelControlCard(),
+              ],
               const SizedBox(height: 35),
               _buildSectionHeader(),
               const SizedBox(height: 15),
@@ -705,6 +710,174 @@ class _HomeScreenState extends State<HomeScreen> with TickerProviderStateMixin {
             ),
           ]
         ],
+      ),
+    );
+  }
+
+  // --- ÇARK KONTROLÜ (MANUEL) — yalnızca gerçek cihazlar için ---
+  void _showWheelSnack(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: AppColors.deepSea,
+        content: Text(message,
+            style: GoogleFonts.inter(
+                color: Colors.white, fontWeight: FontWeight.w600)),
+        duration: const Duration(milliseconds: 1200),
+      ),
+    );
+  }
+
+  Widget _buildWheelControlCard() {
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(24),
+        boxShadow: [
+          BoxShadow(
+              color: Colors.black.withOpacity(0.04),
+              blurRadius: 10,
+              offset: const Offset(0, 4))
+        ],
+      ),
+      child: Theme(
+        data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+        child: Material(
+          color: Colors.transparent,
+          clipBehavior: Clip.antiAlias,
+          borderRadius: BorderRadius.circular(24),
+          child: ExpansionTile(
+            shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+            tilePadding:
+                const EdgeInsets.symmetric(horizontal: 16, vertical: 6),
+            leading: CircleAvatar(
+              backgroundColor: AppColors.skyBlue.withOpacity(0.1),
+              radius: 22,
+              child: const Icon(Icons.settings_suggest_rounded,
+                  color: AppColors.skyBlue, size: 24),
+            ),
+            title: Text(
+              "Çark Kontrolü (Manuel)",
+              style: GoogleFonts.inter(
+                  fontWeight: FontWeight.w800,
+                  fontSize: 16,
+                  color: AppColors.deepSea),
+            ),
+            subtitle: Text(
+              "4 çarkı elle döndürün, sıfırlayın veya dağıtın",
+              style: GoogleFonts.inter(
+                  fontSize: 12, color: Colors.grey.shade600),
+            ),
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 16),
+                child: Column(
+                  children: [
+                    Container(
+                        height: 1, color: AppColors.skyBlue.withOpacity(0.1)),
+                    const SizedBox(height: 12),
+                    ...List.generate(4, (i) => _buildWheelRow(i)),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildWheelRow(int index) {
+    final String mac = widget.macAddress;
+    final int wheelNo = index + 1;
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            "Çark $wheelNo",
+            style: GoogleFonts.inter(
+                fontWeight: FontWeight.w800,
+                fontSize: 14,
+                color: AppColors.deepSea),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _buildWheelActionButton(
+                label: "-1 bölme",
+                icon: Icons.remove_rounded,
+                color: AppColors.deepSea,
+                onTap: () {
+                  _databaseService.devMotorSlot(mac, index, -1);
+                  _showWheelSnack("Çark $wheelNo: -1 bölme komutu gönderildi");
+                },
+              ),
+              _buildWheelActionButton(
+                label: "+1 bölme",
+                icon: Icons.add_rounded,
+                color: AppColors.skyBlue,
+                onTap: () {
+                  _databaseService.devMotorSlot(mac, index, 1);
+                  _showWheelSnack("Çark $wheelNo: +1 bölme komutu gönderildi");
+                },
+              ),
+              _buildWheelActionButton(
+                label: "Home",
+                icon: Icons.home_rounded,
+                color: AppColors.turquoise,
+                onTap: () {
+                  _databaseService.devHome(mac, index);
+                  _showWheelSnack("Çark $wheelNo: Home komutu gönderildi");
+                },
+              ),
+              _buildWheelActionButton(
+                label: "Dağıt",
+                icon: Icons.medication_rounded,
+                color: Colors.deepOrange,
+                onTap: () {
+                  _databaseService.devDispense(mac, index);
+                  _showWheelSnack("Çark $wheelNo: Dağıt komutu gönderildi");
+                },
+              ),
+            ],
+          ),
+          if (index < 3) ...[
+            const SizedBox(height: 10),
+            Container(height: 1, color: AppColors.background),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildWheelActionButton({
+    required String label,
+    required IconData icon,
+    required Color color,
+    required VoidCallback onTap,
+  }) {
+    return SizedBox(
+      height: 38,
+      child: ElevatedButton.icon(
+        onPressed: onTap,
+        icon: Icon(icon, size: 16),
+        label: Text(label,
+            style: GoogleFonts.inter(
+                fontWeight: FontWeight.w700, fontSize: 12)),
+        style: ElevatedButton.styleFrom(
+          backgroundColor: color.withOpacity(0.1),
+          foregroundColor: color,
+          elevation: 0,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12)),
+        ),
       ),
     );
   }

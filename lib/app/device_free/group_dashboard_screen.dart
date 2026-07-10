@@ -806,7 +806,10 @@ class _GroupDashboardScreenState extends State<GroupDashboardScreen> {
   }
 
   Widget _buildModeSelector() {
-    return SegmentedButton<_ViewMode>(
+    // Dar ekranda 4 segment taşabiliyordu; FittedBox ile sığdır (taşma yok).
+    return FittedBox(
+      fit: BoxFit.scaleDown,
+      child: SegmentedButton<_ViewMode>(
       segments: [
         ButtonSegment(
             value: _ViewMode.byTime,
@@ -836,6 +839,7 @@ class _GroupDashboardScreenState extends State<GroupDashboardScreen> {
         padding: const EdgeInsets.symmetric(horizontal: 8),
       ),
       showSelectedIcon: false,
+      ),
     );
   }
 
@@ -1016,10 +1020,12 @@ class _GroupDashboardScreenState extends State<GroupDashboardScreen> {
         children: [
           Row(
             children: [
-              _headerChip(
-                  text: g.name,
-                  color: AppColors.deepSea,
-                  icon: Icons.folder_special_rounded),
+              Flexible(
+                child: _headerChip(
+                    text: g.name,
+                    color: AppColors.deepSea,
+                    icon: Icons.folder_special_rounded),
+              ),
               const SizedBox(width: 8),
               Container(
                 padding:
@@ -1106,9 +1112,12 @@ class _GroupDashboardScreenState extends State<GroupDashboardScreen> {
             Icon(icon, size: 15, color: color),
             const SizedBox(width: 6),
           ],
-          Text(text,
-              style: GoogleFonts.inter(
-                  fontSize: 15, fontWeight: FontWeight.w800, color: color)),
+          Flexible(
+            child: Text(text,
+                overflow: TextOverflow.ellipsis,
+                style: GoogleFonts.inter(
+                    fontSize: 15, fontWeight: FontWeight.w800, color: color)),
+          ),
         ],
       ),
     );

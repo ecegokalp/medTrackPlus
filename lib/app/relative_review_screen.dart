@@ -6,7 +6,7 @@ import 'package:flutter/services.dart';
 import 'package:easy_localization/easy_localization.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:medTrackPlus/beta/verification/cloud_verification_service.dart';
-import 'package:medTrackPlus/main.dart' show AppColors;
+import 'package:medTrackPlus/main.dart' show AppColors, dispenserIconAsset;
 import 'package:video_player/video_player.dart';
 
 /// Relative-side review of medication verification sessions.
@@ -342,8 +342,59 @@ class _HeaderStrip extends StatelessWidget {
   final int count;
   const _HeaderStrip({required this.macAddress, required this.count});
 
+  bool get _isPatient => macAddress.startsWith('patient_');
+
   @override
   Widget build(BuildContext context) {
+    // Entity bilgisini (ad + hasta fotoğrafı) çek; cihaz/hasta ayrımı yap.
+    return FutureBuilder<DocumentSnapshot<Map<String, dynamic>>>(
+      future: FirebaseFirestore.instance
+          .collection(_isPatient ? 'patients' : 'dispenser')
+          .doc(macAddress)
+          .get(),
+      builder: (context, snap) {
+        final data = snap.data?.data();
+        final String name = _isPatient
+            ? (data?['patient_name'] ?? macAddress).toString()
+            : (data?['device_name'] ?? macAddress).toString();
+        final String photo = (data?['photo_url'] ?? '').toString();
+        return _buildStrip(name, photo);
+      },
+    );
+  }
+
+  Widget _buildStrip(String name, String photo) {
+    // Sol görsel: hasta ise fotoğraf (yoksa kişi placeholder),
+    // cihaz ise makine görseli (MEDTRACK_PLUS ise plus görseli).
+    final Widget leading = _isPatient
+        ? CircleAvatar(
+            radius: 22,
+            backgroundColor: Colors.white.withValues(alpha: 0.18),
+            backgroundImage: photo.isNotEmpty ? NetworkImage(photo) : null,
+            child: photo.isEmpty
+                ? const Icon(Icons.person_rounded,
+                    color: Colors.white, size: 24)
+                : null,
+          )
+        : Container(
+            width: 44,
+            height: 44,
+            padding: const EdgeInsets.all(5),
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.18),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: Image.asset(
+              dispenserIconAsset(name),
+              fit: BoxFit.contain,
+              errorBuilder: (c, o, s) => const Icon(Icons.medication_rounded,
+                  color: Colors.white, size: 22),
+            ),
+          );
+
+    final String label =
+        (_isPatient ? 'patient_prefix' : 'device_prefix').tr(args: [name]);
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
       decoration: BoxDecoration(
@@ -363,28 +414,20 @@ class _HeaderStrip extends StatelessWidget {
       ),
       child: Row(
         children: [
-          Container(
-            width: 44,
-            height: 44,
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.18),
-              borderRadius: BorderRadius.circular(14),
-            ),
-            child: const Icon(Icons.medication_rounded,
-                color: Colors.white, size: 22),
-          ),
+          leading,
           const SizedBox(width: 12),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'device_prefix'.tr(args: [macAddress]),
+                  label,
                   style: GoogleFonts.inter(
                     fontSize: 13,
                     fontWeight: FontWeight.w700,
                     color: Colors.white,
                   ),
+                  overflow: TextOverflow.ellipsis,
                 ),
                 const SizedBox(height: 2),
                 Text(

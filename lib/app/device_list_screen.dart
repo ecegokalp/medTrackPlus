@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import '../services/auth_service.dart';
 import '../services/database_service.dart';
+import '../main.dart';
 import 'home_screen.dart';
 
 class DeviceListScreen extends StatefulWidget {
@@ -52,6 +53,7 @@ class _DeviceListScreenState extends State<DeviceListScreen> {
     }
 
     await precacheImage(const AssetImage('assets/dispenser_icon.png'), context);
+    await precacheImage(const AssetImage('assets/dispenser_plus_icon.png'), context);
     return user;
   }
 
@@ -587,6 +589,10 @@ class _DeviceListScreenState extends State<DeviceListScreen> {
         // --- BOYUT AYARLARI ---
         final double cardHeight = isInsideGroup ? 125.0 : 160.0;
         final double imageSize = isInsideGroup ? 60.0 : 85.0;
+        // MEDTRACK_PLUS görseli yatay (3:2); dikey kutuda küçük kalıyordu,
+        // onu daha büyük ve yatay bir kutuda gösteriyoruz.
+        final bool isPlusIcon =
+            deviceName.trim().toUpperCase() == 'MEDTRACK_PLUS';
         final double titleFontSize = isInsideGroup ? 15.5 : 18.0;
 
         final double horizontalMargin = isInsideGroup ? 4.0 : 0.0;
@@ -643,11 +649,11 @@ class _DeviceListScreenState extends State<DeviceListScreen> {
                 child: Row(
                   children: [
                     Container(
-                      width: imageSize,
-                      height: imageSize * 1.5, // 400x600 oranı
+                      width: isPlusIcon ? imageSize * 1.5 : imageSize,
+                      height: isPlusIcon ? imageSize : imageSize * 1.5,
                       alignment: Alignment.center, // Görseli ortala
                       child: Image.asset(
-                        'assets/dispenser_icon.png',
+                        dispenserIconAsset(deviceName),
                         fit: BoxFit.contain,
                         errorBuilder: (c, o, s) =>
                             Icon(Icons.medication, color: colorSkyBlue,

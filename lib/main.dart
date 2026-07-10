@@ -35,6 +35,13 @@ class AppColors {
   static const Color surface = Colors.white;
 }
 
+/// Cihaz adı "MEDTRACK_PLUS" ise plus ikonu, aksi halde standart dispenser
+/// ikonu döner. (Yalnızca ikon yolu değişir; boyut/yerleşim sabit kalır.)
+String dispenserIconAsset(String? deviceName) =>
+    (deviceName != null && deviceName.trim().toUpperCase() == 'MEDTRACK_PLUS')
+        ? 'assets/dispenser_plus_icon.png'
+        : 'assets/dispenser_icon.png';
+
 // --- TEMA AYARLARI ---
 ThemeData get appTheme {
   final colorScheme = ColorScheme.fromSeed(

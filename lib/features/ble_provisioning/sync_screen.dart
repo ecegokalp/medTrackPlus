@@ -167,8 +167,11 @@ class _SyncScreenState extends State<SyncScreen> with SingleTickerProviderStateM
 
   Widget _getDeviceIcon(BluetoothDevice device, bool isMedtrack) {
     if (isMedtrack) {
+      // Taranan cihaz adı "MEDTRACK" ile başlıyorsa plus ikonunu göster.
+      final bool isPlus =
+          device.platformName.toUpperCase().startsWith("MEDTRACK");
       return Image.asset(
-        'assets/dispenser_icon.png',
+        isPlus ? 'assets/dispenser_plus_icon.png' : 'assets/dispenser_icon.png',
         width: 40,
         height: 60,
         fit: BoxFit.contain,

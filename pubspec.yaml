@@ -76,4 +76,5 @@ flutter:
     - assets/languages/
     - assets/alarms/
     - assets/dispenser_icon.png
+    - assets/dispenser_plus_icon.png
     - assets/pill_icon.png

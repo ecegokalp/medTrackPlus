@@ -7,15 +7,21 @@ enum VerificationResult { rejected, suspicious, success }
 enum ScoringMode { withDevice, deviceFree }
 
 class AccuracyScoringEngine {
+  // DEVICE mode: 80% MLKit/CV (vision) + 20% distance/presence.
+  // The vision sub-weights (pill+lip+mouth+pillToLip+timing) sum to 0.80, and
+  // 'presence' carries the remaining 0.20. 'presence' is fed a 0..1 value
+  // derived from the ultrasonic distance (closer → 1.0, farther → 0.0).
   static const _deviceWeights = {
-    'presence': 0.10,
-    'pill': 0.22,
-    'lip': 0.20,
-    'mouth': 0.18,
-    'pillToLip': 0.15,
-    'timing': 0.15,
+    'presence': 0.20,
+    'pill': 0.20,
+    'lip': 0.18,
+    'mouth': 0.16,
+    'pillToLip': 0.13,
+    'timing': 0.13,
   };
 
+  // DEVICE-FREE mode: 100% MLKit/CV vision, NO distance/presence component.
+  // Vision sub-weights sum to 1.0 (exactly like the cv_v2 lab / pure vision).
   static const _deviceFreeWeights = {
     'pill': 0.25,
     'lip': 0.25,

@@ -43,9 +43,9 @@ class CircularSelectorState extends State<CircularSelector> with SingleTickerPro
 
     _globalCurve = CurvedAnimation(parent: _mainController, curve: Curves.easeInOutCubic);
 
-    _segmentAnimations = List.generate(3, (index) {
-      final double start = index / 3.0;
-      final double end = (index + 1) / 3.0;
+    _segmentAnimations = List.generate(4, (index) {
+      final double start = index / 4.0;
+      final double end = (index + 1) / 4.0;
 
       return Tween<double>(begin: 0.0, end: 1.0).animate(
         CurvedAnimation(
@@ -281,6 +281,7 @@ class _CircularSelectorPainter extends CustomPainter {
     SelectorColors.skyBlue,
     SelectorColors.turquoise,
     SelectorColors.deepSea,
+    Color(0xFF7E57C2),
   ];
 
   _CircularSelectorPainter({
